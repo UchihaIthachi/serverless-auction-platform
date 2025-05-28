@@ -141,25 +141,25 @@ graph TD
         SES[SES/SNS]
     end
 
-    APIGW -->|Validate JWT| AuthLambda
-    AuthLambda -->|Allow/Deny| APIGW
+    APIGW -- "Validate JWT" --> AuthLambda
+    AuthLambda -- "Allow/Deny" --> APIGW
 
     APIGW -- Create Auction --> CreateAuctionLambda
-    CreateAuctionLambda -->|Write/Read| AuctionDB
+    CreateAuctionLambda -- "Write/Read" --> AuctionDB
 
     APIGW -- Place Bid --> PlaceBidLambda
-    PlaceBidLambda -->|Write/Read| AuctionDB
-    PlaceBidLambda -->|Event: New Bid| MailQueue
+    PlaceBidLambda -- "Write/Read" --> AuctionDB
+    PlaceBidLambda -- "Event: New Bid" --> MailQueue
 
     APIGW -- Get Auctions/Auction --> GetAuctionsLambda
-    GetAuctionsLambda -->|Read| AuctionDB
+    GetAuctionsLambda -- "Read" --> AuctionDB
 
-    CloudWatchEvents[CloudWatch Events (Scheduled)] -->|Trigger| ProcessAuctionsLambda
-    ProcessAuctionsLambda -->|Read/Write| AuctionDB
-    ProcessAuctionsLambda -->|Event: Auction Ended| MailQueue
+    CloudWatchEvents[CloudWatch Events (Scheduled)] -- "Trigger" --> ProcessAuctionsLambda
+    ProcessAuctionsLambda -- "Read/Write" --> AuctionDB
+    ProcessAuctionsLambda -- "Event: Auction Ended" --> MailQueue
 
-    MailQueue -->|Polls for Messages| NotifyLambda
-    NotifyLambda -->|Send Email| SES
+    MailQueue -- "Polls for Messages" --> NotifyLambda
+    NotifyLambda -- "Send Email" --> SES
 ```
 
 **Diagram Legend:**
