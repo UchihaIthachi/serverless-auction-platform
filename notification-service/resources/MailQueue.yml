@@ -1,14 +1,31 @@
+MailDLQ: # Define the Dead Letter Queue
+  Type: AWS::SQS::Queue
+  Properties:
+    QueueName: MailDLQ-${self:provider.stage}
+    # Consider setting MessageRetentionPeriod, e.g., 1209600 (14 days)
+
 MailQueue:
   Type: AWS::SQS::Queue
   Properties:
     QueueName: ${self:custom.mailQueue.name}
+    RedrivePolicy:
+      deadLetterTargetArn: !GetAtt MailDLQ.Arn
+      maxReceiveCount: 3 # Number of times a message is delivered to the source queue before being sent to the DLQ
 
 Outputs:
   MailQueueArn:
-    Value: ${self:custom.mailQueue.arn}
+    Value: !GetAtt MailQueue.Arn # Corrected to use !GetAtt for the main queue
     Export:
       Name: ${self:custom.mailQueue.name}-Arn
   MailQueueUrl:
-    Value: ${self:custom.mailQueue.url}
+    Value: !Ref MailQueue # Corrected to use !Ref for the main queue
     Export:
       Name: ${self:custom.mailQueue.name}-Url
+  MailDLQArn: # Optional: Output for DLQ ARN
+    Value: !GetAtt MailDLQ.Arn
+    Export:
+      Name: MailDLQ-${self:provider.stage}-Arn
+  MailDLQUrl: # Optional: Output for DLQ URL
+    Value: !Ref MailDLQ
+    Export:
+      Name: MailDLQ-${self:provider.stage}-Url

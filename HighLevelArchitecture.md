@@ -121,7 +121,7 @@ Data consistency and integrity are managed at the application level within the L
 
 ```mermaid
 graph TD
-    User[User Client] -->|HTTPS Request (JWT)| APIGW[API Gateway]
+    User[User Client] -- "HTTPS Request (JWT)" --> APIGW[API Gateway]
 
     subgraph Auth Service
         AuthLambda[Lambda Authorizer]
