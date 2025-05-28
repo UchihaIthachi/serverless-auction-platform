@@ -35,6 +35,12 @@ Each microservice is independently deployable and communicates via AWS-managed m
 
 ---
 
+## 📋 Prerequisites
+
+Before you begin, ensure you have met all the requirements outlined in our [**PREREQUISITES.md**](PREREQUISITES.md) guide. This includes setting up your AWS environment, Node.js, the Serverless Framework, and other necessary tools.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -43,7 +49,11 @@ serverless-auction-platform/
 ├── auction-service/        # Handles listing, bidding, and auction state transitions
 ├── auth-service/           # Manages user authentication and authorization via JWT
 ├── notification-service/   # Sends email/SMS notifications via SES/SNS
-└── README.md               # Project documentation
+├── README.md               # This file: Project overview and main documentation
+├── PREREQUISITES.md        # Details on environment setup and tools needed
+├── AUTH.md                 # Guide for configuring Auth0 for the auth-service
+├── USAGE.md                # API usage guide
+└── HighLevelArchitecture.md # System architecture overview
 ```
 
 ---
@@ -71,47 +81,58 @@ serverless-auction-platform/
 
 ---
 
-## 🏗️ Deployment
+## 🔧 Setup Instructions
 
-Ensure the Serverless Framework is installed:
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/UchihaIthachi/serverless-auction-platform.git
+    cd serverless-auction-platform
+    ```
 
-```bash
-npm install -g serverless
-```
+2.  **Ensure Prerequisites are Met**:
+    *   Make sure you have reviewed and completed all steps in [**PREREQUISITES.md**](PREREQUISITES.md). This includes configuring your AWS credentials.
 
-Deploy individual services:
+3.  **Configure Auth0 for `auth-service`**:
+    *   The `auth-service` requires integration with Auth0 for user authentication. Follow the detailed steps in our [**AUTH.md**](AUTH.md) guide to set up your Auth0 application and API.
+    *   **Crucial**: You must configure the necessary environment variables (`JWKS_URI`, `AUTH0_AUDIENCE`, `AUTH0_ISSUER`) in `auth-service/serverless.yml` as described in `AUTH.md` **before** attempting to deploy the `auth-service`.
 
-```bash
-cd auction-service
-sls deploy
-```
-
-Repeat the above for `auth-service` and `notification-service`.
+4.  **Install Dependencies for All Services**:
+    *   Navigate into each service directory and install Node.js dependencies:
+        ```bash
+        cd auction-service && npm install && cd ..
+        cd auth-service && npm install && cd ..
+        cd notification-service && npm install && cd ..
+        ```
 
 ---
 
-## 🔧 Setup Instructions
+## 🏗️ Deployment
 
-1. Clone the repository:
+After completing all setup steps, including Auth0 configuration for the `auth-service` and installing all dependencies:
 
-   ```bash
-   git clone https://github.com/UchihaIthachi/serverless-auction-platform.git
-   cd serverless-auction-platform
-   ```
+1.  **Install Serverless Framework CLI** (if not already done, see [PREREQUISITES.md](PREREQUISITES.md)):
+    ```bash
+    npm install -g serverless
+    ```
 
-2. Configure AWS credentials:
+2.  **Deploy Each Service**:
+    *   **Important**: It's recommended to deploy the `auth-service` first, as its resources (like the Lambda authorizer ARN) are referenced by other services (e.g., `auction-service`) using CloudFormation cross-stack references (e.g., `#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth`).
+    *   Deploy services individually by navigating to their directories:
 
-   ```bash
-   aws configure
-   ```
+        ```bash
+        cd auth-service
+        sls deploy
+        cd ..
 
-3. Install dependencies for all services:
+        cd auction-service
+        sls deploy
+        cd ..
 
-   ```bash
-   cd auction-service && npm install
-   cd ../auth-service && npm install
-   cd ../notification-service && npm install
-   ```
+        cd notification-service
+        sls deploy
+        cd ..
+        ```
+    *   Take note of any outputs from the `sls deploy` command, such as API Gateway endpoints.
 
 ---
 
