@@ -7,10 +7,12 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs18.x
   memorySize: 128
   environment:
-    AUTH0_PUBLIC_KEY: ${file(secret.pem)}
+    JWKS_URI: https://<YOUR_AUTH0_DOMAIN>/.well-known/jwks.json # Placeholder - User needs to configure
+    AUTH0_AUDIENCE: https://<YOUR_API_IDENTIFIER> # Placeholder - User needs to configure
+    AUTH0_ISSUER: https://<YOUR_AUTH0_DOMAIN>/ # Placeholder - User needs to configure
 
 functions:
   auth:

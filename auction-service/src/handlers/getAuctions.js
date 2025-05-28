@@ -1,33 +1,37 @@
-import AWS from 'aws-sdk';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import createError from 'http-errors';
 import validator from '@middy/validator';
-import commonMiddleware from '../lib/commonMiddleware';
+import { transpileSchema } from '@middy/validator/transpile';
+import commonMiddleware, { logger } from '../lib/commonMiddleware'; // Import logger
 import getAuctionsSchema from '../lib/schemas/getAuctionsSchema';
 
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+const client = new DynamoDBClient({});
+const dynamodb = DynamoDBDocumentClient.from(client);
 
-async function getAuctions(event, context) {
-  const { status } = event.queryStringParameters;
+async function doGetAuctions(event, context) {
+  const { status } = event.queryStringParameters; // Defaults handled by validator
   let auctions;
+  logger.info('Fetching auctions by status', { status });
 
   const params = {
     TableName: process.env.AUCTIONS_TABLE_NAME,
-    IndexName: 'statusAndEndDate',
-    KeyConditionExpression: '#status = :status',
+    IndexName: 'statusAndEndDate', // Querying the GSI
+    KeyConditionExpression: '#status = :status', // Using placeholder for 'status' attribute name
     ExpressionAttributeValues: {
-      ':status': status,
+      ':status': status, // Value for the status condition
     },
     ExpressionAttributeNames: {
-      '#status': 'status',
+      '#status': 'status', // Mapping placeholder to actual attribute name 'status'
     },
   };
 
   try {
-    const result = await dynamodb.query(params).promise();
-
+    const result = await dynamodb.send(new QueryCommand(params));
     auctions = result.Items;
+    logger.info(`Successfully fetched ${auctions.length} auctions with status ${status}.`);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching auctions by status', { status, errorDetails: error });
     throw new createError.InternalServerError(error);
   }
 
@@ -37,5 +41,9 @@ async function getAuctions(event, context) {
   };
 }
 
-export const handler = commonMiddleware(getAuctions)
-  .use(validator({ inputSchema: getAuctionsSchema, useDefaults: true }));
+// Transpile the schema. `useDefaults: 'empty'` is part of default ajvOptions in transpileSchema,
+// which should cover the default for `status`.
+const compiledGetAuctionsSchema = transpileSchema(getAuctionsSchema);
+
+export const handler = commonMiddleware(doGetAuctions)
+  .use(validator({ eventSchema: compiledGetAuctionsSchema }));

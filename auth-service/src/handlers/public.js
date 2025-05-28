@@ -1,5 +1,12 @@
+import { Logger } from '@aws-lambda-powertools/logger';
+
+const logger = new Logger({ serviceName: 'auth-service-public' });
+
 export async function handler(event, context) {
-  return {
+  logger.addContext(context);
+  logger.info('Public endpoint called', { event });
+
+  const response = {
     statusCode: 200,
     headers: {
       /* Required for CORS support to work */
@@ -11,4 +18,7 @@ export async function handler(event, context) {
       message: 'Hi ⊂◉‿◉つ from Public API',
     }),
   };
+
+  logger.info('Public endpoint response', { response });
+  return response;
 }
