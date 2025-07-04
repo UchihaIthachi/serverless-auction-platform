@@ -1,5 +1,4 @@
-service:
-  name: auction-service
+service: auction-service
 
 plugins:
   - serverless-bundle
@@ -33,8 +32,29 @@ functions:
       - http:
           method: POST
           path: /auction
-          cors: true
           authorizer: ${self:custom.authorizer}
+          cors:
+            origins:
+              - 'http://localhost:3000' # For local Next.js development
+              # TODO: Replace '*.vercel.app' with specific Vercel production and preview domains once known
+              - 'https://*.vercel.app'  # Broad placeholder for Vercel domains
+            methods:
+              - POST
+            headers:
+              - Content-Type
+              - Authorization     # For JWT
+              - Accept
+              - Origin
+              - DNT               # Do Not Track
+              - User-Agent
+              - Referer
+              - Connection
+              - Cache-Control
+              - Pragma
+              - Expires
+              - X-Requested-With
+              - X-HTTP-Method-Override
+            allowCredentials: false # For JWT in Authorization header, this is usually false.
 
   getAuctions:
     handler: src/handlers/getAuctions.handler
@@ -42,8 +62,29 @@ functions:
       - http:
           method: GET
           path: /auctions
-          cors: true
           authorizer: ${self:custom.authorizer}
+          cors:
+            origins:
+              - 'http://localhost:3000' # For local Next.js development
+              # TODO: Replace '*.vercel.app' with specific Vercel production and preview domains once known
+              - 'https://*.vercel.app'  # Broad placeholder for Vercel domains
+            methods:
+              - GET
+            headers:
+              - Content-Type
+              - Authorization     # For JWT
+              - Accept
+              - Origin
+              - DNT               # Do Not Track
+              - User-Agent
+              - Referer
+              - Connection
+              - Cache-Control
+              - Pragma
+              - Expires
+              - X-Requested-With
+              - X-HTTP-Method-Override
+            allowCredentials: false # For JWT in Authorization header, this is usually false.
 
   getAuction:
     handler: src/handlers/getAuction.handler
@@ -51,8 +92,29 @@ functions:
       - http:
           method: GET
           path: /auction/{id}
-          cors: true
           authorizer: ${self:custom.authorizer}
+          cors:
+            origins:
+              - 'http://localhost:3000' # For local Next.js development
+              # TODO: Replace '*.vercel.app' with specific Vercel production and preview domains once known
+              - 'https://*.vercel.app'  # Broad placeholder for Vercel domains
+            methods:
+              - GET
+            headers:
+              - Content-Type
+              - Authorization     # For JWT
+              - Accept
+              - Origin
+              - DNT               # Do Not Track
+              - User-Agent
+              - Referer
+              - Connection
+              - Cache-Control
+              - Pragma
+              - Expires
+              - X-Requested-With
+              - X-HTTP-Method-Override
+            allowCredentials: false # For JWT in Authorization header, this is usually false.
 
   placeBid:
     handler: src/handlers/placeBid.handler
@@ -60,8 +122,29 @@ functions:
       - http:
           method: PATCH
           path: auction/{id}/bid
-          cors: true
           authorizer: ${self:custom.authorizer}
+          cors:
+            origins:
+              - 'http://localhost:3000' # For local Next.js development
+              # TODO: Replace '*.vercel.app' with specific Vercel production and preview domains once known
+              - 'https://*.vercel.app'  # Broad placeholder for Vercel domains
+            methods:
+              - PATCH
+            headers:
+              - Content-Type
+              - Authorization     # For JWT
+              - Accept
+              - Origin
+              - DNT               # Do Not Track
+              - User-Agent
+              - Referer
+              - Connection
+              - Cache-Control
+              - Pragma
+              - Expires
+              - X-Requested-With
+              - X-HTTP-Method-Override
+            allowCredentials: false # For JWT in Authorization header, this is usually false.
 
   uploadAuctionPicture:
     handler: src/handlers/uploadAuctionPicture.handler
@@ -69,8 +152,29 @@ functions:
       - http:
           method: PATCH
           path: auction/{id}/picture
-          cors: true
           authorizer: ${self:custom.authorizer}
+          cors:
+            origins:
+              - 'http://localhost:3000' # For local Next.js development
+              # TODO: Replace '*.vercel.app' with specific Vercel production and preview domains once known
+              - 'https://*.vercel.app'  # Broad placeholder for Vercel domains
+            methods:
+              - PATCH
+            headers:
+              - Content-Type
+              - Authorization     # For JWT
+              - Accept
+              - Origin
+              - DNT               # Do Not Track
+              - User-Agent
+              - Referer
+              - Connection
+              - Cache-Control
+              - Pragma
+              - Expires
+              - X-Requested-With
+              - X-HTTP-Method-Override
+            allowCredentials: false # For JWT in Authorization header, this is usually false.
 
   processAuctions:
     handler: src/handlers/processAuctions.handler
