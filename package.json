@@ -1,0 +1,16 @@
+{
+  "name": "serverless-auctions",
+  "version": "1.0.0",
+  "description": "Serverless Auction Platform",
+  "author": "Ariel Weinberger <ariel@codingly.io>",
+  "license": "MIT",
+  "scripts": {
+    "local:up": "make localstack-up",
+    "local:down": "make localstack-down",
+    "local:logs": "make localstack-logs",
+    "offline:auction": "cd auction-service && sls offline --stage local",
+    "offline:auth": "cd auth-service && sls offline --stage local",
+    "offline:notify": "cd notification-service && sls offline --stage local",
+    "test": "make smoke-test"
+  }
+}

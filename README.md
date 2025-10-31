@@ -115,6 +115,41 @@ Repeat the above for `auth-service` and `notification-service`.
 
 ---
 
+### Local Development with LocalStack
+
+Requirements: Docker, AWS CLI, Node 18+, Serverless Framework
+
+1) Start LocalStack:
+   npm run local:up
+
+2) Run services locally (in separate terminals):
+   npm run offline:auth
+   npm run offline:auction
+   npm run offline:notify
+
+3) Run Smoke Tests:
+   npm test
+
+4) Stop LocalStack:
+   npm run local:down
+
+### Optional: Deploy to LocalStack via Serverless
+
+You can also deploy your services to LocalStack directly using the Serverless Framework:
+
+```
+cd auction-service
+sls deploy --stage local
+```
+
+This is useful for testing the deployment process and CloudFormation resource creation.
+
+### Troubleshooting
+
+*   **`Port 4566 already in use`**: Another process is using the LocalStack port. Stop the conflicting process or change the port in `docker-compose.yml`.
+*   **`Docker daemon not running`**: Make sure Docker is installed and running on your system.
+*   **`Endpoint mismatch`**: Ensure the `AWS_ENDPOINT` in your `serverless.yml` files matches the LocalStack endpoint in your `docker-compose.yml` and `Makefile`.
+
 ## 📡 Event Flow Summary
 
 * **User actions** trigger Lambda functions through API Gateway.

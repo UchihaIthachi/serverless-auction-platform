@@ -4,14 +4,21 @@ service:
 plugins:
   - serverless-bundle
   - serverless-pseudo-parameters
+  - serverless-offline
+  - serverless-localstack
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs20.x
   memorySize: 256
   stage: ${opt:stage, 'dev'}
-  region: eu-west-1
+  region: ${opt:region, 'us-east-1'}
   environment:
+    AWS_REGION: ${self:provider.region}
+    # When running locally:
+    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
+    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
+    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
     MAIL_QUEUE_URL: ${self:custom.MailQueue.url}
     AUCTIONS_BUCKET_NAME: ${self:custom.AuctionsBucket.name}
@@ -78,6 +85,14 @@ functions:
       - schedule: rate(1 minute)
 
 custom:
+  awsEndpoint:
+    local: http://localhost:4566
+    dev: ''
+    prod: ''
+  localstack:
+    stages: [local]
+    lambda:
+      mountCode: true
   authorizer: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth
   AuctionsTable:
     name: !Ref AuctionsTable
@@ -86,6 +101,9 @@ custom:
     arn: ${cf:notification-service-${self:provider.stage}.MailQueueArn}
     url: ${cf:notification-service-${self:provider.stage}.MailQueueUrl}
   AuctionsBucket:
-    name: auctions-bucket-sj19asxm-${self:provider.stage}
+    name: ${self:custom.AuctionsBucket.${self:provider.stage}, self:custom.AuctionsBucket.default}
+  AuctionsBucket:
+    default: auctions-bucket-sj19asxm-${self:provider.stage}
+    local: auctions-bucket-sj19asxm-local
   bundle:
     linting: false

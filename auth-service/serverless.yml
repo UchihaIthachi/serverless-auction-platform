@@ -4,12 +4,21 @@ service:
 
 plugins:
   - serverless-bundle
+  - serverless-offline
+  - serverless-localstack
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs20.x
   memorySize: 128
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
   environment:
+    AWS_REGION: ${self:provider.region}
+    # When running locally:
+    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
+    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
+    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
     AUTH0_PUBLIC_KEY: ${file(secret.pem)}
 
 functions:
@@ -56,5 +65,13 @@ resources:
           Ref: 'ApiGatewayRestApi'
         StatusCode: '401'
 custom:
+  awsEndpoint:
+    local: http://localhost:4566
+    dev: ''
+    prod: ''
+  localstack:
+    stages: [local]
+    lambda:
+      mountCode: true
   bundle:
     linting: false

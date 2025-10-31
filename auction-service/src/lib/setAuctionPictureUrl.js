@@ -1,6 +1,4 @@
-import AWS from 'aws-sdk';
-
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+import { ddb } from '../../../shared/aws';
 
 export async function setAuctionPictureUrl(id, pictureUrl) {
   const params = {
@@ -13,6 +11,6 @@ export async function setAuctionPictureUrl(id, pictureUrl) {
     ReturnValues: 'ALL_NEW',
   };
 
-  const result = await dynamodb.update(params).promise();
+  const result = await ddb.update(params);
   return result.Attributes;
 }

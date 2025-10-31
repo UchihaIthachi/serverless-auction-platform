@@ -4,15 +4,23 @@ service:
 plugins:
   - serverless-bundle
   - serverless-pseudo-parameters
+  - serverless-offline
+  - serverless-localstack
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs20.x
   memorySize: 256
-  region: eu-west-1
+  region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
   iamRoleStatements:
     - ${file(iam/SendMailIAM.yml):SendMailIAM}
+  environment:
+    AWS_REGION: ${self:provider.region}
+    # When running locally:
+    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
+    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
+    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
 
 resources:
   Resources:
@@ -30,6 +38,14 @@ functions:
           batchSize: 1
 
 custom:
+  awsEndpoint:
+    local: http://localhost:4566
+    dev: ''
+    prod: ''
+  localstack:
+    stages: [local]
+    lambda:
+      mountCode: true
   mailQueue:
     name: MailQueue-${self:provider.stage}
     arn: !GetAtt MailQueue.Arn

@@ -1,15 +1,17 @@
-import AWS from 'aws-sdk';
-
-const s3 = new AWS.S3();
+import { s3, Upload } from '../../../shared/aws';
 
 export async function uploadPictureToS3(key, body) {
-  const result = await s3.upload({
-    Bucket: process.env.AUCTIONS_BUCKET_NAME,
-    Key: key,
-    Body: body,
-    ContentEncoding: 'base64',
-    ContentType: 'image/jpeg',
-  }).promise();
+  const upload = new Upload({
+    client: s3,
+    params: {
+      Bucket: process.env.AUCTIONS_BUCKET_NAME,
+      Key: key,
+      Body: body,
+      ContentEncoding: 'base64',
+      ContentType: 'image/jpeg',
+    },
+  });
 
+  const result = await upload.done();
   return result.Location;
 }
