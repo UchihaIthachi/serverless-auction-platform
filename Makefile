@@ -17,7 +17,3 @@ localstack-logs:
 
 localstack-bootstrap:
 	bash scripts/localstack-bootstrap.sh $(LOCALSTACK_ENDPOINT) $(REGION)
-
-smoke-test:
-	docker build -t smoke-test -f Dockerfile.test .
-	docker run --rm --network=host smoke-test $(LOCALSTACK_ENDPOINT) $(REGION)

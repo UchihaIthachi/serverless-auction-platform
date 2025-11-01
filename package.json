@@ -11,6 +11,7 @@
     "offline:auction": "cd auction-service && sls offline --stage local",
     "offline:auth": "cd auth-service && sls offline --stage local",
     "offline:notify": "cd notification-service && sls offline --stage local",
-    "test": "make smoke-test"
+    "test:compose": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tester",
+    "test:down": "docker compose -f docker-compose.test.yml down -v"
   }
 }

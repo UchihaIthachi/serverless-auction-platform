@@ -127,8 +127,8 @@ Requirements: Docker, AWS CLI, Node 18+, Serverless Framework
    npm run offline:auction
    npm run offline:notify
 
-3) Run Smoke Tests:
-   npm test
+3) Run Tests:
+   npm run test:compose
 
 4) Stop LocalStack:
    npm run local:down
@@ -143,6 +143,20 @@ sls deploy --stage local
 ```
 
 This is useful for testing the deployment process and CloudFormation resource creation.
+
+### Docker-based Local Testing
+
+1) Start your local APIs in separate terminals (serverless-offline):
+   # example ports; adjust to your setup
+   cd auth-service && sls offline --stage local
+   cd auction-service && sls offline --stage local
+   cd notification-service && sls offline --stage local
+
+2) Run tests in Docker (brings up LocalStack + tester):
+   npm run test:compose
+
+3) Tear down:
+   npm run test:down
 
 ### Troubleshooting
 
