@@ -6,7 +6,10 @@ REGION=us-east-1
 localstack-up:
 	docker compose up -d localstack
 	@echo "Waiting for LocalStack..."
-	sleep 3
+	@until aws --endpoint-url=$(LOCALSTACK_ENDPOINT) sts get-caller-identity >/dev/null 2>&1; do \
+	  echo "[wait] LocalStack not ready yet..."; \
+	  sleep 2; \
+	done
 	$(MAKE) localstack-bootstrap
 
 localstack-down:

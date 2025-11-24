@@ -20,7 +20,7 @@ provider:
     AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
     AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
-    MAIL_QUEUE_URL: ${self:custom.MailQueue.url}
+    MAIL_QUEUE_URL: ${self:custom.MailQueue.url.${self:provider.stage}, self:custom.MailQueue.url}
     AUCTIONS_BUCKET_NAME: ${self:custom.AuctionsBucket.name}
   iamRoleStatements:
     - ${file(iam/AuctionsTableIAM.yml):AuctionsTableIAM}
@@ -101,8 +101,11 @@ custom:
     name: !Ref AuctionsTable
     arn: !GetAtt AuctionsTable.Arn
   MailQueue:
-    arn: ${cf:notification-service-${self:provider.stage}.MailQueueArn}
-    url: ${cf:notification-service-${self:provider.stage}.MailQueueUrl}
+    # For deployed stages, use CloudFormation cross-stack reference
+    arn: ${cf:notification-service-${self:provider.stage}.MailQueueArn, ''}
+    url: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
+    # For local stage, construct the URL manually
+    url.local: http://localhost:4566/000000000000/MailQueue-local
   AuctionsBucket:
     name: ${self:custom.AuctionsBucket.${self:provider.stage}, self:custom.AuctionsBucket.default}
   AuctionsBucket:

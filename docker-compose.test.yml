@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.5
     container_name: localstack
     environment:
       - SERVICES=lambda,dynamodb,sqs,sns,s3,ses,cloudwatch,logs
@@ -29,4 +29,4 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
-    command: -lc "sleep 3 && /app/scripts/test-local.sh && /app/scripts/test-e2e.sh"
+    command: -lc "/app/scripts/test-local.sh && /app/scripts/test-e2e.sh"
