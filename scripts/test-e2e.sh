@@ -36,6 +36,9 @@ aws --endpoint-url="$ENDPOINT" dynamodb get-item \
 
 echo "[E2E] Poll SQS MailQueue-local"
 QUEUE_URL=$(aws --endpoint-url="$ENDPOINT" sqs get-queue-url --queue-name "MailQueue-local" | jq -r .QueueUrl)
+if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "null" ]; then
+  echo "[E2E] Failed to get MailQueue-local queue URL"; exit 1;
+fi
 aws --endpoint-url="$ENDPOINT" sqs receive-message --queue-url "$QUEUE_URL" --max-number-of-messages 5 | jq .
 
 echo "[E2E] OK"
