@@ -1,8 +1,7 @@
-service:
-  name: auction-service
+service: auction-service
 
 plugins:
-  - serverless-bundle
+  - serverless-esbuild
   - serverless-pseudo-parameters
   - serverless-offline
   - serverless-localstack
@@ -20,7 +19,7 @@ provider:
     AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
     AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
-    MAIL_QUEUE_URL: ${self:custom.MailQueue.url.${self:provider.stage}, self:custom.MailQueue.url}
+    MAIL_QUEUE_URL: ${self:custom.MailQueue.url.${self:provider.stage}, ''}
     AUCTIONS_BUCKET_NAME: ${self:custom.AuctionsBucket.name}
   iamRoleStatements:
     - ${file(iam/AuctionsTableIAM.yml):AuctionsTableIAM}
@@ -41,7 +40,7 @@ functions:
           method: POST
           path: /auction
           cors: true
-          authorizer: ${self:custom.authorizer}
+          authorizer: ${self:custom.authorizer.${self:provider.stage}}
 
   getAuctions:
     handler: src/handlers/getAuctions.handler
@@ -50,7 +49,7 @@ functions:
           method: GET
           path: /auctions
           cors: true
-          authorizer: ${self:custom.authorizer}
+          authorizer: ${self:custom.authorizer.${self:provider.stage}}
 
   getAuction:
     handler: src/handlers/getAuction.handler
@@ -59,7 +58,7 @@ functions:
           method: GET
           path: /auction/{id}
           cors: true
-          authorizer: ${self:custom.authorizer}
+          authorizer: ${self:custom.authorizer.${self:provider.stage}}
 
   placeBid:
     handler: src/handlers/placeBid.handler
@@ -68,7 +67,7 @@ functions:
           method: PATCH
           path: auction/{id}/bid
           cors: true
-          authorizer: ${self:custom.authorizer}
+          authorizer: ${self:custom.authorizer.${self:provider.stage}}
 
   uploadAuctionPicture:
     handler: src/handlers/uploadAuctionPicture.handler
@@ -77,7 +76,7 @@ functions:
           method: PATCH
           path: auction/{id}/picture
           cors: true
-          authorizer: ${self:custom.authorizer}
+          authorizer: ${self:custom.authorizer.${self:provider.stage}}
 
   processAuctions:
     handler: src/handlers/processAuctions.handler
@@ -97,19 +96,24 @@ custom:
     local: ''
     dev: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth
     prod: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: "node20"
+    platform: "node"
+    external:
+      - aws-sdk
   AuctionsTable:
     name: !Ref AuctionsTable
     arn: !GetAtt AuctionsTable.Arn
   MailQueue:
-    # For deployed stages, use CloudFormation cross-stack reference
     arn: ${cf:notification-service-${self:provider.stage}.MailQueueArn, ''}
-    url: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
-    # For local stage, construct the URL manually
-    url.local: http://localhost:4566/000000000000/MailQueue-local
+    url:
+      local: http://localhost:4566/000000000000/MailQueue-local
+      dev: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
+      prod: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
   AuctionsBucket:
     name: ${self:custom.AuctionsBucket.${self:provider.stage}, self:custom.AuctionsBucket.default}
-  AuctionsBucket:
     default: auctions-bucket-sj19asxm-${self:provider.stage}
     local: auctions-bucket-sj19asxm-local
-  bundle:
-    linting: false

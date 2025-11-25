@@ -8,7 +8,7 @@
     "local:up": "make localstack-up",
     "local:down": "make localstack-down",
     "local:logs": "make localstack-logs",
-    "offline:auction": "cd auction-service && sls offline --stage local",
+    "offline:auction": "cd auction-service && npm run start:local",
     "offline:auth": "cd auth-service && sls offline --stage local",
     "offline:notify": "cd notification-service && sls offline --stage local",
     "test:compose": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tester",
