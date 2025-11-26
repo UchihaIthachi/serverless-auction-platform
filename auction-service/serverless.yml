@@ -1,4 +1,5 @@
-service: auction-service
+service:
+  name: auction-service
 
 plugins:
   - serverless-esbuild

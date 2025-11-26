@@ -2,7 +2,7 @@ service:
   name: notification-service
 
 plugins:
-  - serverless-bundle
+  - serverless-esbuild
   - serverless-pseudo-parameters
   - serverless-offline
   - serverless-localstack
@@ -50,5 +50,11 @@ custom:
     name: MailQueue-${self:provider.stage}
     arn: !GetAtt MailQueue.Arn
     url: !Ref MailQueue
-  bundle:
-    linting: false
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: "node20"
+    platform: "node"
+    external:
+      - aws-sdk
