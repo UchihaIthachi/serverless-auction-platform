@@ -5,7 +5,7 @@ services:
     image: localstack/localstack:3.5
     container_name: localstack
     environment:
-      - SERVICES=lambda,dynamodb,sqs,sns,s3,ses,cloudwatch,logs
+      - SERVICES=lambda,dynamodb,sqs,sns,s3,ses,cloudwatch,logs,cloudformation
       - DEFAULT_REGION=us-east-1
       - AWS_DEFAULT_REGION=us-east-1
       - DEBUG=1
@@ -29,4 +29,6 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: -lc "/app/scripts/test-local.sh && /app/scripts/test-e2e.sh"

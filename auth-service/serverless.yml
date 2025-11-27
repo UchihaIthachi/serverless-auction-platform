@@ -1,5 +1,4 @@
-service:
-  name: auth-service
+service: auth-service
 
 plugins:
   - serverless-esbuild

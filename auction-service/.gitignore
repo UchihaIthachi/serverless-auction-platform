@@ -7,3 +7,6 @@ jspm_packages
 
 # Webpack directories
 .webpack
+
+# Log files
+auction-service.log

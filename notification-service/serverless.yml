@@ -1,5 +1,4 @@
-service:
-  name: notification-service
+service: notification-service
 
 plugins:
   - serverless-esbuild
