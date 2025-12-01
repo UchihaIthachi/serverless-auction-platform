@@ -1,17 +1,65 @@
-
 # 🛠️ Serverless Auction Platform
 
 A **capstone project** built using **AWS**, following a **microservices architecture** with an **event-driven**, **serverless (FaaS)** design. This platform enables scalable, modular, and resilient online auctions using the [Serverless Framework](https://www.serverless.com/) deployed on AWS cloud services.
 
 ---
 
+## 🏗️ High-Level Architecture
+
+```mermaid
+graph TD
+    User[User / Client]
+
+    subgraph "API Gateway (HTTP)"
+        AuthAPI[Auth API]
+        AuctionAPI[Auction API]
+    end
+
+    subgraph "Auth Service"
+        AuthLambda[Auth Lambda]
+    end
+
+    subgraph "Auction Service"
+        AuctionLambda[Auction Lambdas]
+        ProcessAuctions[Process Auctions Cron]
+        AuctionsDB[(DynamoDB: AuctionsTable)]
+        AuctionsBucket[S3: AuctionsBucket]
+    end
+
+    subgraph "Notification Service"
+        NotifyLambda[SendMail Lambda]
+    end
+
+    subgraph "AWS / LocalStack Infrastructure"
+        MailQueue[[SQS: MailQueue-local]]
+        SES[SES: Email (LocalStack/AWS)]
+    end
+
+    User --> AuthAPI
+    User --> AuctionAPI
+
+    AuthAPI --> AuthLambda
+    AuctionAPI --> AuctionLambda
+
+    AuctionLambda --> AuctionsDB
+    AuctionLambda --> AuctionsBucket
+    AuctionLambda -- "Enqueue mail event" --> MailQueue
+
+    ProcessAuctions -- "Scheduled Event" --> AuctionLambda
+
+    MailQueue --> NotifyLambda
+    NotifyLambda --> SES
+```
+
+---
+
 ## 🧱 Architecture Overview
 
-* **Architecture Style**: Microservices
-* **Execution Model**: Serverless (FaaS - Function as a Service)
-* **Design Pattern**: Event-Driven
-* **Cloud Platform**: AWS
-* **Use Case**: Capstone project demonstrating best practices in cloud-native application development
+- **Architecture Style**: Microservices
+- **Execution Model**: Serverless (FaaS - Function as a Service)
+- **Design Pattern**: Event-Driven
+- **Cloud Platform**: AWS
+- **Use Case**: Capstone project demonstrating best practices in cloud-native application development
 
 Each microservice is independently deployable and communicates via AWS-managed messaging and notification services, following the principles of loose coupling and asynchronous processing.
 
@@ -19,30 +67,31 @@ Each microservice is independently deployable and communicates via AWS-managed m
 
 ## 🚀 Tech Stack
 
-* **Language**: Node.js
-* **Framework**: Serverless Framework
-* **Cloud Services**:
-
-  * AWS Lambda (FaaS)
-  * API Gateway
-  * DynamoDB
-  * SQS (Simple Queue Service)
-  * SNS (Simple Notification Service)
-  * SES (Simple Email Service)
-  * CloudWatch (Monitoring)
-* **Authentication**: JWT + Lambda Authorizer
-* **CI/CD**: GitHub Actions *(planned)*
+- **Language**: Node.js
+- **Framework**: Serverless Framework
+- **Cloud Services**:
+  - AWS Lambda (FaaS)
+  - API Gateway
+  - DynamoDB
+  - SQS (Simple Queue Service)
+  - SES (Simple Email Service)
+  - CloudWatch (Monitoring)
+- **Authentication**: JWT + Lambda Authorizer
+- **CI/CD**: GitHub Actions _(planned)_
+- **Local Development**: LocalStack, Serverless Offline, Docker
 
 ---
 
 ## 📁 Project Structure
 
-```
+```bash
 serverless-auction-platform/
 │
 ├── auction-service/        # Handles listing, bidding, and auction state transitions
 ├── auth-service/           # Manages user authentication and authorization via JWT
-├── notification-service/   # Sends email/SMS notifications via SES/SNS
+├── notification-service/   # Sends email notifications via SES/SNS
+├── scripts/                # Helper scripts for local dev and testing
+├── docker-compose.yml      # LocalStack configuration
 └── README.md               # Project documentation
 ```
 
@@ -52,124 +101,197 @@ serverless-auction-platform/
 
 ### ✅ Auction Service
 
-* Create, update, and delete auctions
-* Start and end auctions with scheduled events
-* Accept bids with validation and conflict handling
-* Trigger notifications and events for auction outcomes
+- Create, update, and delete auctions
+- Start and end auctions with scheduled events
+- Accept bids with validation and conflict handling
+- Trigger notifications and events for auction outcomes
 
 ### 🔐 Auth Service
 
-* User sign-up and login with email verification
-* JWT token generation and validation
-* Lambda Authorizer integration for securing API endpoints
+- User sign-up and login with email verification
+- JWT token generation and validation
+- Lambda Authorizer integration for securing API endpoints
 
 ### 📢 Notification Service
 
-* Send notifications via email and SMS for auction events
-* Inform winning bidders and auction owners
-* Uses AWS SES and SNS for delivery
-
----
-
-## 🏗️ Deployment
-
-Ensure the Serverless Framework is installed:
-
-```bash
-npm install -g serverless
-```
-
-Deploy individual services:
-
-```bash
-cd auction-service
-sls deploy
-```
-
-Repeat the above for `auth-service` and `notification-service`.
+- Send notifications for auction events
+- Inform winning bidders and auction owners
+- Uses AWS SES and SNS for delivery
 
 ---
 
 ## 🔧 Setup Instructions
 
-1. Clone the repository:
+### Prerequisites
 
-   ```bash
-   git clone https://github.com/UchihaIthachi/serverless-auction-platform.git
-   cd serverless-auction-platform
-   ```
+- **Node.js** (v20.x recommended)
+- **Docker** & **Docker Compose**
+- **AWS CLI** (v2)
+- **Serverless Framework** (v3)
 
-2. Configure AWS credentials:
+### 1. Installation
 
-   ```bash
-   aws configure
-   ```
+Install dependencies for the root and all services:
 
-3. Install dependencies for all services:
+```bash
+# Root dependencies
+npm install
 
-   ```bash
-   cd auction-service && npm install
-   cd ../auth-service && npm install
-   cd ../notification-service && npm install
-   ```
+# Service dependencies
+cd auction-service && npm install && cd ..
+cd auth-service && npm install && cd ..
+cd notification-service && npm install && cd ..
+```
+
+### 2. Configure Dummy Credentials (LocalStack)
+
+Configure AWS CLI to use dummy credentials for local testing (region `us-east-1` is preferred):
+
+```bash
+aws configure set aws_access_key_id test
+aws configure set aws_secret_access_key test
+aws configure set region us-east-1
+```
 
 ---
 
-### Local Development with LocalStack
+## ⚙️ Usage (Local Development & Testing)
 
-Requirements: Docker, AWS CLI, Node 18+, Serverless Framework
+> **Tip**: On Windows, use **PowerShell** for `npm` commands and **Git Bash** for `bash` scripts / `curl` examples.
 
-1) Start LocalStack:
-   npm run local:up
+### 🔹 Quick Start (Local)
 
-2) Run services locally (in separate terminals):
-   npm run offline:auth
-   npm run offline:auction
-   npm run offline:notify
+```bash
+# 1. Install dependencies
+npm install && cd auction-service && npm install && cd ..
 
-3) Run Tests:
-   npm run test:compose
+# 2. Start LocalStack
+npm run local:up
 
-4) Stop LocalStack:
-   npm run local:down
-
-### Optional: Deploy to LocalStack via Serverless
-
-You can also deploy your services to LocalStack directly using the Serverless Framework:
-
+# 3. Start Auction API
+npm run offline:auction
 ```
+
+---
+
+### 1. Start LocalStack
+
+Use the provided script to start LocalStack and bootstrap required resources (DynamoDB tables, SQS queues, S3 buckets, SES identities):
+
+```bash
+npm run local:up
+```
+
+> **Note**: This runs `docker compose up` and executes `scripts/localstack-bootstrap.sh`. You should see `[Bootstrap] Done.` with no errors.
+
+### 2. Run Services Locally
+
+You can run each service in **separate terminal windows** using `serverless-offline`.
+
+**Auction Service** (Port 3000):
+
+```bash
+npm run offline:auction
+```
+
+**Auth Service** (Port 3000 - _conflict warning_):
+
+> _Note: By default, serverless-offline uses port 3000. If you run multiple services, override ports with `--httpPort` or only run the Auction Service when running tests._
+
+```bash
+npm run offline:auth
+```
+
+**Notification Service** (Port 3000 - _conflict warning_):
+
+```bash
+npm run offline:notify
+```
+
+### 3. Automated Tests (Docker)
+
+To run the full suite of **Smoke Tests** and **E2E Tests** in a clean Docker environment:
+
+```bash
+npm run test:compose
+```
+
+> For the E2E tests, only the **Auction Service** needs to be running via `npm run offline:auction`. Auth and Notification are mocked or exercised indirectly via LocalStack.
+
+This command:
+
+1. Starts the Auction Service in the background.
+2. Builds a test container (`tester`).
+3. Runs `scripts/test-local.sh` (resource verification) and `scripts/test-e2e.sh` (API flows) against the local setup.
+
+### 4. Manual Verification
+
+You can manually trigger flows using `curl` or the provided helper script.
+
+**Helper Script**:
+
+```bash
+# Requires 'jq' to be installed
+bash scripts/verify-local-flow.sh
+```
+
+**Manual Commands**:
+
+_Create an Auction:_
+
+```bash
+curl -X POST http://localhost:3000/auction \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Test Auction"}'
+```
+
+_Place a Bid:_
+
+```bash
+# Replace {id} with the ID from the previous step
+curl -X PATCH http://localhost:3000/auction/{id}/bid \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+```
+
+_Trigger Scheduled Process (Close Auctions):_
+Since `serverless-offline` doesn't automatically trigger scheduled events, invoke the lambda manually:
+
+```bash
+aws --endpoint-url=http://localhost:3002 lambda invoke \
+  --function-name auction-service-local-processAuctions \
+  --payload '{}' \
+  response.json
+```
+
+_(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RPC. If not, use the LocalStack endpoint `http://localhost:4566` if deployed there. This simulates the scheduled `processAuctions` function that would normally be triggered by CloudWatch Events in AWS.)_
+
+---
+
+## 🏗️ Deployment (AWS)
+
+**Important**: Before deploying, ensure you have configured valid AWS credentials. You may need to unset the dummy credentials used for LocalStack:
+
+```bash
+# Verify identity (should NOT be 'test')
+aws sts get-caller-identity
+```
+
+To deploy to real AWS environment:
+
+```bash
+# Deploy Auction Service
 cd auction-service
-sls deploy --stage local
+sls deploy --stage dev
+
+# Deploy Auth Service
+cd ../auth-service
+sls deploy --stage dev
+
+# Deploy Notification Service
+cd ../notification-service
+sls deploy --stage dev
 ```
-
-This is useful for testing the deployment process and CloudFormation resource creation.
-
-### Docker-based Local Testing
-
-1) Start your local APIs in separate terminals (serverless-offline):
-   # example ports; adjust to your setup
-   cd auth-service && sls offline --stage local
-   cd auction-service && sls offline --stage local
-   cd notification-service && sls offline --stage local
-
-2) Run tests in Docker (brings up LocalStack + tester):
-   npm run test:compose
-
-3) Tear down:
-   npm run test:down
-
-### Troubleshooting
-
-*   **`Port 4566 already in use`**: Another process is using the LocalStack port. Stop the conflicting process or change the port in `docker-compose.yml`.
-*   **`Docker daemon not running`**: Make sure Docker is installed and running on your system.
-*   **`Endpoint mismatch`**: Ensure the `AWS_ENDPOINT` in your `serverless.yml` files matches the LocalStack endpoint in your `docker-compose.yml` and `Makefile`.
-
-## 📡 Event Flow Summary
-
-* **User actions** trigger Lambda functions through API Gateway.
-* **Bids** and **auction state changes** emit events to **SQS queues**.
-* **Notifications** are asynchronously processed and sent via **SNS/SES**.
-* **CloudWatch** monitors logs and metrics across services.
 
 ---
 
@@ -183,7 +305,3 @@ GitHub: [@UchihaIthachi](https://github.com/UchihaIthachi)
 ## 🪪 License
 
 This project is licensed under the [MIT License](LICENSE).
-
----
-
-

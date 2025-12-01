@@ -1,0 +1,5 @@
+awsEndpoint: ''
+authorizer: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-dev-auth
+mailQueueArn: ${cf:notification-service-dev.MailQueueArn}
+mailQueueUrl: ${cf:notification-service-dev.MailQueueUrl}
+auctionsBucketName: auctions-bucket-sj19asxm-dev

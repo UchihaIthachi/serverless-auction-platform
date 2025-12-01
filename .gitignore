@@ -1,0 +1,7 @@
+# Node dependencies
+node_modules
+
+# Lockfiles
+
+# Log files
+*.log

@@ -1,9 +1,7 @@
-
-service:
-  name: serverless-auth0-authorizer
+service: auth-service
 
 plugins:
-  - serverless-bundle
+  - serverless-esbuild
   - serverless-offline
   - serverless-localstack
 
@@ -73,5 +71,11 @@ custom:
     stages: [local]
     lambda:
       mountCode: true
-  bundle:
-    linting: false
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: "node20"
+    platform: "node"
+    external:
+      - aws-sdk
