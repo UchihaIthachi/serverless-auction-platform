@@ -266,6 +266,35 @@ aws --endpoint-url=http://localhost:3002 lambda invoke \
 
 _(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RPC. If not, use the LocalStack endpoint `http://localhost:4566` if deployed there. This simulates the scheduled `processAuctions` function that would normally be triggered by CloudWatch Events in AWS.)_
 
+### 🌐 Frontend Deployment on LocalStack (S3 Website)
+
+You can deploy the frontend into LocalStack’s S3 website hosting for a fully local end-to-end experience.
+
+#### 1. Build & Deploy Frontend
+
+```bash
+# From repo root
+npm run local:up              # if not already running
+npm run deploy:frontend:local
+```
+
+This will:
+
+* Build the frontend app (e.g. in `frontend/out`)
+* Sync the static files to the `auction-frontend-local` S3 bucket in LocalStack
+
+#### 2. Access the Frontend
+
+Try:
+
+```bash
+curl http://localhost:4566/auction-frontend-local/index.html
+```
+
+Or open the equivalent URL in your browser.
+
+*(Note: URL style may differ slightly depending on your LocalStack version; in some setups you can also use bucket-style hostnames.)*
+
 ---
 
 ## 🏗️ Deployment (AWS)

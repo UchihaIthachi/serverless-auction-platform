@@ -75,4 +75,39 @@ else
   echo "[Bootstrap] SES email identity test@example.com already verified."
 fi
 
+# Frontend S3 Website
+FRONTEND_BUCKET="auction-frontend-local"
+echo "[Bootstrap] Creating S3 bucket for frontend: ${FRONTEND_BUCKET}..."
+
+if ! aws --endpoint-url="$ENDPOINT" s3api head-bucket --bucket "${FRONTEND_BUCKET}" > /dev/null 2>&1; then
+  aws --endpoint-url="$ENDPOINT" s3 mb "s3://${FRONTEND_BUCKET}" > /dev/null
+else
+  echo "[Bootstrap] Frontend bucket already exists."
+fi
+
+echo "[Bootstrap] Enabling static website hosting for frontend bucket..."
+aws --endpoint-url="$ENDPOINT" s3 website "s3://${FRONTEND_BUCKET}" \
+  --index-document index.html \
+  --error-document index.html
+
+echo "[Bootstrap] Applying public-read bucket policy for frontend (LocalStack only)..."
+cat > /tmp/auction-frontend-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${FRONTEND_BUCKET}/*"
+    }
+  ]
+}
+EOF
+
+aws --endpoint-url="$ENDPOINT" s3api put-bucket-policy \
+  --bucket "${FRONTEND_BUCKET}" \
+  --policy file:///tmp/auction-frontend-policy.json
+
 echo "[Bootstrap] Done."
