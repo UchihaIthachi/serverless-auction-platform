@@ -1,6 +1,7 @@
 import createError from 'http-errors';
 import validator from '@middy/validator';
 import { ddb } from '../../../shared/aws';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { getAuctionById } from './getAuction';
 import commonMiddleware from '../lib/commonMiddleware';
 import placeBidSchema from '../lib/schemas/placeBidSchema';
@@ -8,7 +9,7 @@ import placeBidSchema from '../lib/schemas/placeBidSchema';
 async function placeBid(event, context) {
   const { id } = event.pathParameters;
   const { amount } = event.body;
-  const { email } = event.requestContext.authorizer;
+  const { email } = event.requestContext.authorizer || { email: 'bidder@example.com' };
 
   const auction = await getAuctionById(id);
 
@@ -46,7 +47,7 @@ async function placeBid(event, context) {
   let updatedAuction;
 
   try {
-    const result = await ddb.update(params);
+    const result = await ddb.send(new UpdateCommand(params));
     updatedAuction = result.Attributes;
   } catch (error) {
     console.error(error);

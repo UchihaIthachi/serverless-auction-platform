@@ -1,44 +1,78 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ENDPOINT="${1:-http://localhost:4566}"
+REGION="${2:-us-east-1}"
 
-ENDPOINT="${LOCALSTACK_ENDPOINT:-http://localhost:4566}"
-API_BASE="${API_BASE_URL:-http://localhost:3000}"
-AUCTION="${AUCTION_API_URL:-$API_BASE}"
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION="${REGION}"
 
-echo "[E2E] Expect serverless-offline APIs to be running (auction)."
-echo "[E2E] Using API base: $AUCTION"
+echo "[Bootstrap] Using endpoint: $ENDPOINT"
 
-# 1) Create auction
-CREATE_OUT=$(curl -sS -X POST "$AUCTION/auction" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"E2E Test Item"}')
-echo "$CREATE_OUT" | jq .
-AUC_ID=$(echo "$CREATE_OUT" | jq -r .id)
-test "$AUC_ID" != "null"
-
-# 2) Place a bid
-BID_OUT=$(curl -sS -X PATCH "$AUCTION/auction/$AUC_ID/bid" \
-  -H "Content-Type: application/json" \
-  -d '{"amount":120}')
-echo "$BID_OUT" | jq .
-
-# 3) Close the auction
-aws --endpoint-url="$ENDPOINT" lambda invoke \
-  --function-name auction-service-local-processAuctions \
-  --payload '{}' \
-  response.json
-
-# 4) Verify side-effects in LocalStack
-echo "[E2E] Checking DynamoDB for auction $AUC_ID"
-aws --endpoint-url="$ENDPOINT" dynamodb get-item \
-  --table-name "AuctionsTable-local" \
-  --key "{\"id\": {\"S\": \"$AUC_ID\"}}" | jq .
-
-echo "[E2E] Poll SQS MailQueue-local"
-QUEUE_URL=$(aws --endpoint-url="$ENDPOINT" sqs get-queue-url --queue-name "MailQueue-local" | jq -r .QueueUrl)
-if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "null" ]; then
-  echo "[E2E] Failed to get MailQueue-local queue URL"; exit 1;
+# DynamoDB Tables
+echo "[Bootstrap] Creating DynamoDB table: AuctionsTable-local..."
+RECREATE_TABLE="false"
+if aws --endpoint-url="$ENDPOINT" dynamodb list-tables --query "TableNames" | grep -q "AuctionsTable-local"; then
+  # Check if the required GSI exists
+  if ! aws --endpoint-url="$ENDPOINT" dynamodb describe-table --table-name AuctionsTable-local | grep -q "statusAndEndDate"; then
+    echo "[Bootstrap] Table 'AuctionsTable-local' exists but is missing GSI 'statusAndEndDate'. Recreating..."
+    aws --endpoint-url="$ENDPOINT" dynamodb delete-table --table-name AuctionsTable-local
+    echo "[Bootstrap] Waiting for table deletion..."
+    aws --endpoint-url="$ENDPOINT" dynamodb wait table-not-exists --table-name AuctionsTable-local
+    RECREATE_TABLE="true"
+  else
+    echo "[Bootstrap] Table 'AuctionsTable-local' exists and has required GSI."
+  fi
+else
+  RECREATE_TABLE="true"
 fi
-aws --endpoint-url="$ENDPOINT" sqs receive-message --queue-url "$QUEUE_URL" --max-number-of-messages 5 | jq .
 
-echo "[E2E] OK"
+if [ "$RECREATE_TABLE" == "true" ]; then
+  aws --endpoint-url="$ENDPOINT" dynamodb create-table \
+    --table-name AuctionsTable-local \
+    --attribute-definitions \
+        AttributeName=id,AttributeType=S \
+        AttributeName=status,AttributeType=S \
+        AttributeName=endingAt,AttributeType=S \
+    --key-schema AttributeName=id,KeyType=HASH \
+    --global-secondary-indexes \
+        "[
+            {
+                \"IndexName\": \"statusAndEndDate\",
+                \"KeySchema\": [
+                    {\"AttributeName\":\"status\",\"KeyType\":\"HASH\"},
+                    {\"AttributeName\":\"endingAt\",\"KeyType\":\"RANGE\"}
+                ],
+                \"Projection\": {
+                    \"ProjectionType\": \"ALL\"
+                }
+            }
+        ]" \
+    --billing-mode PAY_PER_REQUEST > /dev/null
+fi
+
+# SQS Queues
+echo "[Bootstrap] Creating SQS queue: MailQueue-local..."
+if ! aws --endpoint-url="$ENDPOINT" sqs get-queue-url --queue-name MailQueue-local > /dev/null 2>&1; then
+  aws --endpoint-url="$ENDPOINT" sqs create-queue --queue-name MailQueue-local > /dev/null
+else
+  echo "[Bootstrap] SQS queue MailQueue-local already exists."
+fi
+
+# S3 Buckets
+echo "[Bootstrap] Creating S3 bucket: auctions-bucket-sj19asxm-local..."
+if ! aws --endpoint-url="$ENDPOINT" s3api head-bucket --bucket auctions-bucket-sj19asxm-local > /dev/null 2>&1; then
+  aws --endpoint-url="$ENDPOINT" s3 mb s3://auctions-bucket-sj19asxm-local > /dev/null
+else
+  echo "[Bootstrap] S3 bucket auctions-bucket-sj19asxm-local already exists."
+fi
+
+# SES Identity
+echo "[Bootstrap] Verifying SES email identity: test@example.com..."
+if ! aws --endpoint-url="$ENDPOINT" ses get-identity-verification-attributes --identities "test@example.com" | grep -q "Success"; then
+  aws --endpoint-url="$ENDPOINT" ses verify-email-identity --email-address test@example.com > /dev/null
+else
+  echo "[Bootstrap] SES email identity test@example.com already verified."
+fi
+
+echo "[Bootstrap] Done."

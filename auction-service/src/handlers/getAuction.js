@@ -1,15 +1,16 @@
 import commonMiddleware from '../lib/commonMiddleware';
 import createError from 'http-errors';
 import { ddb } from '../../../shared/aws';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function getAuctionById(id) {
   let auction;
 
   try {
-    const result = await ddb.get({
+    const result = await ddb.send(new GetCommand({
       TableName: process.env.AUCTIONS_TABLE_NAME,
       Key: { id },
-    });
+    }));
 
     auction = result.Item;
   } catch (error) {

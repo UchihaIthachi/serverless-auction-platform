@@ -1,4 +1,5 @@
-import { ddb, sqs } from '../../../shared/aws';
+import { ddb, sqs, SendMessageCommand } from '../../../shared/aws';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function closeAuction(auction) {
   const params = {
@@ -13,7 +14,7 @@ export async function closeAuction(auction) {
     },
   };
 
-  await ddb.update(params);
+  await ddb.send(new UpdateCommand(params));
 
   const { title, seller, highestBid } = auction;
   const { amount, bidder } = highestBid;

@@ -11,14 +11,44 @@ echo "[Bootstrap] Using endpoint: $ENDPOINT"
 
 # DynamoDB Tables
 echo "[Bootstrap] Creating DynamoDB table: AuctionsTable-local..."
-if ! aws --endpoint-url="$ENDPOINT" dynamodb list-tables --query "TableNames" | grep -q "AuctionsTable-local"; then
+RECREATE_TABLE="false"
+if aws --endpoint-url="$ENDPOINT" dynamodb list-tables --query "TableNames" | grep -q "AuctionsTable-local"; then
+  # Check if the required GSI exists
+  if ! aws --endpoint-url="$ENDPOINT" dynamodb describe-table --table-name AuctionsTable-local | grep -q "statusAndEndDate"; then
+    echo "[Bootstrap] Table 'AuctionsTable-local' exists but is missing GSI 'statusAndEndDate'. Recreating..."
+    aws --endpoint-url="$ENDPOINT" dynamodb delete-table --table-name AuctionsTable-local
+    echo "[Bootstrap] Waiting for table deletion..."
+    aws --endpoint-url="$ENDPOINT" dynamodb wait table-not-exists --table-name AuctionsTable-local
+    RECREATE_TABLE="true"
+  else
+    echo "[Bootstrap] Table 'AuctionsTable-local' exists and has required GSI."
+  fi
+else
+  RECREATE_TABLE="true"
+fi
+
+if [ "$RECREATE_TABLE" == "true" ]; then
   aws --endpoint-url="$ENDPOINT" dynamodb create-table \
     --table-name AuctionsTable-local \
-    --attribute-definitions AttributeName=id,AttributeType=S \
+    --attribute-definitions \
+        AttributeName=id,AttributeType=S \
+        AttributeName=status,AttributeType=S \
+        AttributeName=endingAt,AttributeType=S \
     --key-schema AttributeName=id,KeyType=HASH \
+    --global-secondary-indexes \
+        "[
+            {
+                \"IndexName\": \"statusAndEndDate\",
+                \"KeySchema\": [
+                    {\"AttributeName\":\"status\",\"KeyType\":\"HASH\"},
+                    {\"AttributeName\":\"endingAt\",\"KeyType\":\"RANGE\"}
+                ],
+                \"Projection\": {
+                    \"ProjectionType\": \"ALL\"
+                }
+            }
+        ]" \
     --billing-mode PAY_PER_REQUEST > /dev/null
-else
-  echo "[Bootstrap] DynamoDB table AuctionsTable-local already exists."
 fi
 
 # SQS Queues
