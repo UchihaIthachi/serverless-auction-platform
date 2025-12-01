@@ -9,7 +9,7 @@ import placeBidSchema from '../lib/schemas/placeBidSchema';
 async function placeBid(event, context) {
   const { id } = event.pathParameters;
   const { amount } = event.body;
-  const { email } = event.requestContext.authorizer;
+  const { email } = event.requestContext.authorizer || { email: 'bidder@example.com' };
 
   const auction = await getAuctionById(id);
 

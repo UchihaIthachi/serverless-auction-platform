@@ -100,7 +100,7 @@ custom:
     external:
       - aws-sdk
   AuctionsTable:
-    name: !Ref AuctionsTable
+    name: AuctionsTable-${self:provider.stage}
     arn: !GetAtt AuctionsTable.Arn
   MailQueue:
     arn: ${self:custom.config.mailQueueArn}
