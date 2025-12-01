@@ -1,4 +1,5 @@
 import { ddb } from '../../../shared/aws';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function setAuctionPictureUrl(id, pictureUrl) {
   const params = {
@@ -11,6 +12,6 @@ export async function setAuctionPictureUrl(id, pictureUrl) {
     ReturnValues: 'ALL_NEW',
   };
 
-  const result = await ddb.update(params);
+  const result = await ddb.send(new UpdateCommand(params));
   return result.Attributes;
 }

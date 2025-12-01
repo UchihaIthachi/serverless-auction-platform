@@ -84,6 +84,8 @@ functions:
       - schedule: rate(1 minute)
 
 custom:
+  serverless-offline:
+    noPrependStageInUrl: true
   config: ${file(config/config.${self:provider.stage}.yml)}
   localstack:
     stages: [local]

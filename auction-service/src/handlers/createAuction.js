@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import createError from 'http-errors';
 import validator from '@middy/validator';
 import { ddb } from '../../../shared/aws';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import commonMiddleware from '../lib/commonMiddleware';
 import createAuctionSchema from '../lib/schemas/createAuctionSchema';
 
@@ -25,10 +26,10 @@ async function createAuction(event, context) {
   };
 
   try {
-    await ddb.put({
+    await ddb.send(new PutCommand({
       TableName: process.env.AUCTIONS_TABLE_NAME,
       Item: auction,
-    });
+    }));
   } catch(error) {
     console.error(error);
     throw new createError.InternalServerError(error);

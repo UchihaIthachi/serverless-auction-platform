@@ -1,4 +1,5 @@
 import { ddb } from '../../../shared/aws';
+import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function getEndedAuctions() {
   const now = new Date();
@@ -15,6 +16,6 @@ export async function getEndedAuctions() {
     },
   };
 
-  const result = await ddb.query(params);
+  const result = await ddb.send(new QueryCommand(params));
   return result.Items;
 }
