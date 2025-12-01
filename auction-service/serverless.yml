@@ -15,12 +15,12 @@ provider:
   environment:
     AWS_REGION: ${self:provider.region}
     # When running locally:
-    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
+    AWS_ENDPOINT: ${self:custom.config.awsEndpoint}
     AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
     AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
-    MAIL_QUEUE_URL: ${self:custom.MailQueue.url.${self:provider.stage}, ''}
-    AUCTIONS_BUCKET_NAME: ${self:custom.AuctionsBucket.name}
+    MAIL_QUEUE_URL: ${self:custom.config.mailQueueUrl}
+    AUCTIONS_BUCKET_NAME: ${self:custom.config.auctionsBucketName}
   iamRoleStatements:
     - ${file(iam/AuctionsTableIAM.yml):AuctionsTableIAM}
     - ${file(iam/MailQueueIAM.yml):MailQueueIAM}
@@ -40,7 +40,7 @@ functions:
           method: POST
           path: /auction
           cors: true
-          authorizer: ${self:custom.authorizer.${self:provider.stage}}
+          authorizer: ${self:custom.config.authorizer}
 
   getAuctions:
     handler: src/handlers/getAuctions.handler
@@ -49,7 +49,7 @@ functions:
           method: GET
           path: /auctions
           cors: true
-          authorizer: ${self:custom.authorizer.${self:provider.stage}}
+          authorizer: ${self:custom.config.authorizer}
 
   getAuction:
     handler: src/handlers/getAuction.handler
@@ -58,7 +58,7 @@ functions:
           method: GET
           path: /auction/{id}
           cors: true
-          authorizer: ${self:custom.authorizer.${self:provider.stage}}
+          authorizer: ${self:custom.config.authorizer}
 
   placeBid:
     handler: src/handlers/placeBid.handler
@@ -67,7 +67,7 @@ functions:
           method: PATCH
           path: auction/{id}/bid
           cors: true
-          authorizer: ${self:custom.authorizer.${self:provider.stage}}
+          authorizer: ${self:custom.config.authorizer}
 
   uploadAuctionPicture:
     handler: src/handlers/uploadAuctionPicture.handler
@@ -76,7 +76,7 @@ functions:
           method: PATCH
           path: auction/{id}/picture
           cors: true
-          authorizer: ${self:custom.authorizer.${self:provider.stage}}
+          authorizer: ${self:custom.config.authorizer}
 
   processAuctions:
     handler: src/handlers/processAuctions.handler
@@ -84,18 +84,11 @@ functions:
       - schedule: rate(1 minute)
 
 custom:
-  awsEndpoint:
-    local: http://localhost:4566
-    dev: ''
-    prod: ''
+  config: ${file(config/config.${self:provider.stage}.yml)}
   localstack:
     stages: [local]
     lambda:
       mountCode: true
-  authorizer:
-    local: ''
-    dev: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth
-    prod: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-${self:provider.stage}-auth
   esbuild:
     bundle: true
     minify: false
@@ -107,17 +100,8 @@ custom:
   AuctionsTable:
     name: !Ref AuctionsTable
     arn: !GetAtt AuctionsTable.Arn
-  mailQueueArn:
-    local: arn:aws:sqs:us-east-1:000000000000:MailQueue-local
-    dev: ${cf:notification-service-dev.MailQueueArn}
-    prod: ${cf:notification-service-prod.MailQueueArn}
   MailQueue:
-    arn: ${self:custom.mailQueueArn.${self:provider.stage}}
-    url:
-      local: http://localhost:4566/000000000000/MailQueue-local
-      dev: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
-      prod: ${cf:notification-service-${self:provider.stage}.MailQueueUrl, ''}
+    arn: ${self:custom.config.mailQueueArn}
+    url: ${self:custom.config.mailQueueUrl}
   AuctionsBucket:
-    name: ${self:custom.AuctionsBucket.${self:provider.stage}, self:custom.AuctionsBucket.default}
-    default: auctions-bucket-sj19asxm-${self:provider.stage}
-    local: auctions-bucket-sj19asxm-local
+    name: ${self:custom.config.auctionsBucketName}
