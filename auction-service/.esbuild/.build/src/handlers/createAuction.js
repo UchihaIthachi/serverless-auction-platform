@@ -93950,6 +93950,9 @@ var schema = {
       properties: {
         title: {
           type: "string"
+        },
+        endingAt: {
+          type: "string"
         }
       },
       required: ["title"]
@@ -93961,11 +93964,18 @@ var createAuctionSchema_default = schema;
 
 // src/handlers/createAuction.js
 async function createAuction(event, context) {
-  const { title } = event.body;
-  const { email } = event.requestContext.authorizer || { email: "seller@example.com" };
+  const { title, endingAt } = event.body;
+  const { email } = event.requestContext.authorizer || {
+    email: "seller@example.com"
+  };
   const now = /* @__PURE__ */ new Date();
-  const endDate = /* @__PURE__ */ new Date();
-  endDate.setHours(now.getHours() + 1);
+  let endDate;
+  if (endingAt) {
+    endDate = new Date(endingAt);
+  } else {
+    endDate = /* @__PURE__ */ new Date();
+    endDate.setHours(now.getHours() + 1);
+  }
   const auction = {
     id: (0, import_uuid3.v4)(),
     title,
@@ -93978,10 +93988,12 @@ async function createAuction(event, context) {
     seller: email
   };
   try {
-    await ddb.send(new import_lib_dynamodb2.PutCommand({
-      TableName: process.env.AUCTIONS_TABLE_NAME,
-      Item: auction
-    }));
+    await ddb.send(
+      new import_lib_dynamodb2.PutCommand({
+        TableName: process.env.AUCTIONS_TABLE_NAME,
+        Item: auction
+      })
+    );
   } catch (error3) {
     console.error(error3);
     throw new import_http_errors.default.InternalServerError(error3);
@@ -93991,7 +94003,9 @@ async function createAuction(event, context) {
     body: JSON.stringify(auction)
   };
 }
-var handler = commonMiddleware_default(createAuction).use((0, import_validator.default)({ inputSchema: createAuctionSchema_default }));
+var handler = commonMiddleware_default(createAuction).use(
+  (0, import_validator.default)({ inputSchema: createAuctionSchema_default })
+);
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   handler
