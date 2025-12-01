@@ -1,11 +1,55 @@
-Here’s an updated `README.md` with a new **Usage** section and cleaned-up local/dev/test instructions based on everything you’ve done so far.
-
-You can **replace** your current README with this:
-
-````markdown
 # 🛠️ Serverless Auction Platform
 
 A **capstone project** built using **AWS**, following a **microservices architecture** with an **event-driven**, **serverless (FaaS)** design. This platform enables scalable, modular, and resilient online auctions using the [Serverless Framework](https://www.serverless.com/) deployed on AWS cloud services.
+
+---
+
+## 🏗️ High-Level Architecture
+
+```mermaid
+graph TD
+    User[User / Client]
+
+    subgraph "API Gateway (HTTP)"
+        AuthAPI[Auth API]
+        AuctionAPI[Auction API]
+    end
+
+    subgraph "Auth Service"
+        AuthLambda[Auth Lambda]
+    end
+
+    subgraph "Auction Service"
+        AuctionLambda[Auction Lambdas]
+        ProcessAuctions[Process Auctions Cron]
+        AuctionsDB[(DynamoDB: AuctionsTable)]
+        AuctionsBucket[S3: AuctionsBucket]
+    end
+
+    subgraph "Notification Service"
+        NotifyLambda[SendMail Lambda]
+    end
+
+    subgraph "AWS / LocalStack Infrastructure"
+        MailQueue[[SQS: MailQueue-local]]
+        SES[SES: Email (LocalStack/AWS)]
+    end
+
+    User --> AuthAPI
+    User --> AuctionAPI
+
+    AuthAPI --> AuthLambda
+    AuctionAPI --> AuctionLambda
+
+    AuctionLambda --> AuctionsDB
+    AuctionLambda --> AuctionsBucket
+    AuctionLambda -- "Enqueue mail event" --> MailQueue
+
+    ProcessAuctions -- "Scheduled Event" --> AuctionLambda
+
+    MailQueue --> NotifyLambda
+    NotifyLambda --> SES
+```
 
 ---
 
@@ -30,11 +74,11 @@ Each microservice is independently deployable and communicates via AWS-managed m
   - API Gateway
   - DynamoDB
   - SQS (Simple Queue Service)
-  - SNS (Simple Notification Service)
   - SES (Simple Email Service)
   - CloudWatch (Monitoring)
 - **Authentication**: JWT + Lambda Authorizer
 - **CI/CD**: GitHub Actions _(planned)_
+- **Local Development**: LocalStack, Serverless Offline, Docker
 
 ---
 
@@ -46,9 +90,10 @@ serverless-auction-platform/
 ├── auction-service/        # Handles listing, bidding, and auction state transitions
 ├── auth-service/           # Manages user authentication and authorization via JWT
 ├── notification-service/   # Sends email notifications via SES/SNS
+├── scripts/                # Helper scripts for local dev and testing
+├── docker-compose.yml      # LocalStack configuration
 └── README.md               # Project documentation
 ```
-````
 
 ---
 
@@ -75,69 +120,32 @@ serverless-auction-platform/
 
 ---
 
-## 🏗️ Deployment (AWS)
-
-Ensure the Serverless Framework is installed:
-
-```bash
-npm install -g serverless
-```
-
-Deploy an individual service:
-
-```bash
-cd auction-service
-sls deploy
-```
-
-Repeat the above for `auth-service` and `notification-service`.
-
----
-
 ## 🔧 Setup Instructions
 
-1. **Clone the repository**
+### Prerequisites
 
-   ```bash
-   git clone https://github.com/UchihaIthachi/serverless-auction-platform.git
-   cd serverless-auction-platform
-   ```
+- **Node.js** (v20.x recommended)
+- **Docker** & **Docker Compose**
+- **AWS CLI** (v2)
+- **Serverless Framework** (v3)
 
-2. **Configure AWS credentials for real AWS deployments**
+### 1. Installation
 
-   ```bash
-   aws configure
-   ```
+Install dependencies for the root and all services:
 
-3. **Install dependencies**
+```bash
+# Root dependencies
+npm install
 
-   Root:
+# Service dependencies
+cd auction-service && npm install && cd ..
+cd auth-service && npm install && cd ..
+cd notification-service && npm install && cd ..
+```
 
-   ```bash
-   npm install
-   ```
+### 2. Configure Dummy Credentials (LocalStack)
 
-   Per service:
-
-   ```bash
-   cd auction-service && npm install
-   cd ../auth-service && npm install
-   cd ../notification-service && npm install
-   ```
-
----
-
-## ⚙️ Usage (Local Development & Testing)
-
-This section covers **local development** using **LocalStack** and **serverless-offline**, plus **Docker-based smoke/E2E tests** and manual API usage.
-
-> 💡 Requirements: Docker, AWS CLI, Node 18+, Serverless Framework, npm.
-
----
-
-### 1️⃣ One-time Local Dev Setup
-
-Configure **dummy AWS credentials** for LocalStack (no real keys needed):
+Configure AWS CLI to use dummy credentials for local testing (region `us-east-1` is preferred):
 
 ```bash
 aws configure set aws_access_key_id test
@@ -145,185 +153,145 @@ aws configure set aws_secret_access_key test
 aws configure set region us-east-1
 ```
 
-Install dependencies (if not already done):
+---
+
+## ⚙️ Usage (Local Development & Testing)
+
+> **Tip**: On Windows, use **PowerShell** for `npm` commands and **Git Bash** for `bash` scripts / `curl` examples.
+
+### 🔹 Quick Start (Local)
 
 ```bash
-# from repo root
-npm install
+# 1. Install dependencies
+npm install && cd auction-service && npm install && cd ..
 
-cd auction-service && npm install
-cd ../auth-service && npm install
-cd ../notification-service && npm install
+# 2. Start LocalStack
+npm run local:up
+
+# 3. Start Auction API
+npm run offline:auction
 ```
-
-Make sure **Docker Desktop** is running before you start LocalStack or tests.
 
 ---
 
-### 2️⃣ Local Development with LocalStack + serverless-offline
+### 1. Start LocalStack
 
-#### Step 2.1 – Start LocalStack
-
-From the **repo root**:
+Use the provided script to start LocalStack and bootstrap required resources (DynamoDB tables, SQS queues, S3 buckets, SES identities):
 
 ```bash
 npm run local:up
 ```
 
-This will:
+> **Note**: This runs `docker compose up` and executes `scripts/localstack-bootstrap.sh`. You should see `[Bootstrap] Done.` with no errors.
 
-- Start the LocalStack container
-- Bootstrap DynamoDB tables, SQS queue, S3 bucket, and SES identity
+### 2. Run Services Locally
 
-Sanity check (optional):
+You can run each service in **separate terminal windows** using `serverless-offline`.
 
-```bash
-aws --endpoint-url=http://localhost:4566 dynamodb list-tables
-```
-
-You should see `AuctionsTable-local` in the output.
-
----
-
-#### Step 2.2 – Run services locally (offline APIs)
-
-In **separate terminals**, run:
+**Auction Service** (Port 3000):
 
 ```bash
-# Auth Service (JWT / authorizer)
-cd auth-service
-npm run offline:auth    # or: npm run start:local / sls offline --stage local
-
-# Auction Service (core auction APIs)
-cd ../auction-service
-npm run offline:auction # starts HTTP API on http://localhost:3000
-
-# Notification Service (email notifications)
-cd ../notification-service
-npm run offline:notify  # or: npm run start:local
+npm run offline:auction
 ```
 
-Make sure each service starts successfully and connects to LocalStack (using `AWS_ENDPOINT`, dummy creds, etc.).
+**Auth Service** (Port 3000 - _conflict warning_):
 
----
+> _Note: By default, serverless-offline uses port 3000. If you run multiple services, override ports with `--httpPort` or only run the Auction Service when running tests._
 
-### 3️⃣ Docker-based Tests (Smoke + E2E)
+```bash
+npm run offline:auth
+```
 
-The project includes a Docker-based test harness that spins up:
+**Notification Service** (Port 3000 - _conflict warning_):
 
-- LocalStack
-- A tester container that runs:
+```bash
+npm run offline:notify
+```
 
-  - `scripts/test-local.sh` (smoke)
-  - `scripts/test-e2e.sh` (end-to-end)
+### 3. Automated Tests (Docker)
 
-From the **repo root**:
+To run the full suite of **Smoke Tests** and **E2E Tests** in a clean Docker environment:
 
 ```bash
 npm run test:compose
 ```
 
-This will:
+> For the E2E tests, only the **Auction Service** needs to be running via `npm run offline:auction`. Auth and Notification are mocked or exercised indirectly via LocalStack.
 
-- Build the `serverless-auction-platform-tester` image
-- Start LocalStack + tester using `docker-compose.test.yml`
-- Run the smoke test and E2E test against your local APIs
+This command:
 
-✅ **You want to see:**
+1. Starts the Auction Service in the background.
+2. Builds a test container (`tester`).
+3. Runs `scripts/test-local.sh` (resource verification) and `scripts/test-e2e.sh` (API flows) against the local setup.
 
-- `[SMOKE] OK`
-- `[E2E] OK`
-- Command exits with code `0`
+### 4. Manual Verification
 
-If E2E fails, check the logs for:
+You can manually trigger flows using `curl` or the provided helper script.
 
-- Connectivity issues to `http://host.docker.internal:3000`
-- Any application errors from auction-service
+**Helper Script**:
 
----
+```bash
+# Requires 'jq' to be installed
+bash scripts/verify-local-flow.sh
+```
 
-### 4️⃣ Manual Auction Flow (Local Usage)
+**Manual Commands**:
 
-Once the **Auction Service** is running on `http://localhost:3000` (via `npm run offline:auction`), you can manually exercise the API.
-
-Use **Git Bash** or **WSL** for these `curl` commands.
-
-#### 4.1 – Create an auction
+_Create an Auction:_
 
 ```bash
 curl -X POST http://localhost:3000/auction \
   -H "Content-Type: application/json" \
-  -d '{"title": "Vintage Camera"}'
+  -d '{"title": "Test Auction"}'
 ```
 
-The response will include an `id` field. Copy it as `AUCTION_ID`.
-
----
-
-#### 4.2 – Place a bid
+_Place a Bid:_
 
 ```bash
-curl -X PATCH "http://localhost:3000/auction/$AUCTION_ID/bid" \
+# Replace {id} with the ID from the previous step
+curl -X PATCH http://localhost:3000/auction/{id}/bid \
   -H "Content-Type: application/json" \
-  -d '{"amount": 50}'
+  -d '{"amount": 100}'
 ```
 
----
-
-#### 4.3 – Get auction details
-
-```bash
-curl "http://localhost:3000/auction/$AUCTION_ID"
-```
-
-You should see the auction with the recorded bid and current status.
-
----
-
-#### 4.4 – Manually trigger `processAuctions` (via LocalStack Lambda)
-
-Normally, `processAuctions` runs on a schedule. To invoke it manually against LocalStack:
+_Trigger Scheduled Process (Close Auctions):_
+Since `serverless-offline` doesn't automatically trigger scheduled events, invoke the lambda manually:
 
 ```bash
-aws --endpoint-url=http://localhost:4566 lambda invoke \
+aws --endpoint-url=http://localhost:3002 lambda invoke \
   --function-name auction-service-local-processAuctions \
   --payload '{}' \
   response.json
 ```
 
-Then check the auction again:
-
-```bash
-curl "http://localhost:3000/auction/$AUCTION_ID"
-```
-
-You should see the auction status updated (e.g., closed) and any side effects applied.
+_(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RPC. If not, use the LocalStack endpoint `http://localhost:4566` if deployed there. This simulates the scheduled `processAuctions` function that would normally be triggered by CloudWatch Events in AWS.)_
 
 ---
 
-### 5️⃣ Stopping LocalStack and Containers
+## 🏗️ Deployment (AWS)
 
-To stop the LocalStack stack started via `docker-compose` (if defined as such in scripts):
-
-```bash
-# from repo root
-docker compose down
-```
-
-If you have `npm run local:down` wired in `package.json`, you can also use:
+**Important**: Before deploying, ensure you have configured valid AWS credentials. You may need to unset the dummy credentials used for LocalStack:
 
 ```bash
-npm run local:down
+# Verify identity (should NOT be 'test')
+aws sts get-caller-identity
 ```
 
----
+To deploy to real AWS environment:
 
-## 📡 Event Flow Summary
+```bash
+# Deploy Auction Service
+cd auction-service
+sls deploy --stage dev
 
-- **User actions** trigger Lambda functions via API Gateway.
-- **Bids** and **auction state changes** emit events to **SQS**.
-- **Notifications** are asynchronously processed and sent via **SES/SNS**.
-- **CloudWatch** collects logs and metrics across services.
+# Deploy Auth Service
+cd ../auth-service
+sls deploy --stage dev
+
+# Deploy Notification Service
+cd ../notification-service
+sls deploy --stage dev
+```
 
 ---
 
@@ -337,9 +305,3 @@ GitHub: [@UchihaIthachi](https://github.com/UchihaIthachi)
 ## 🪪 License
 
 This project is licensed under the [MIT License](LICENSE).
-
-```
-
-If you want, I can next turn this into a small PR-style diff (`git diff` format) that you can paste directly into GitHub.
-::contentReference[oaicite:0]{index=0}
-```
