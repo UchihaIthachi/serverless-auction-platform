@@ -2,7 +2,7 @@
   "name": "serverless-auctions",
   "version": "1.0.0",
   "description": "Serverless Auction Platform",
-  "author": "Ariel Weinberger <ariel@codingly.io>",
+  "author": "Harshana Lakshara Fernando",
   "license": "MIT",
   "scripts": {
     "local:up": "bash scripts/localstack-up.sh",
@@ -14,5 +14,14 @@
     "offline:notify": "cd notification-service && sls offline --stage local",
     "test:compose": "bash scripts/test-compose.sh",
     "test:down": "docker compose -f docker-compose.test.yml down -v"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.940.0",
+    "@aws-sdk/client-s3": "^3.940.0",
+    "@aws-sdk/client-ses": "^3.940.0",
+    "@aws-sdk/client-sns": "^3.940.0",
+    "@aws-sdk/client-sqs": "^3.940.0",
+    "@aws-sdk/lib-dynamodb": "^3.940.0",
+    "@aws-sdk/lib-storage": "^3.940.0"
   }
 }
