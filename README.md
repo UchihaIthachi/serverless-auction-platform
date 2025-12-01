@@ -32,7 +32,7 @@ graph TD
 
     subgraph "AWS / LocalStack Infrastructure"
         MailQueue[[SQS: MailQueue-local]]
-        SES[SES: Email (LocalStack/AWS)]
+        SES["SES: Email (LocalStack/AWS)"]
     end
 
     User --> AuthAPI
