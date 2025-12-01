@@ -5,7 +5,7 @@
   "description": "Demonstration of protecting API gateway endpoints with auth0",
   "license": "MIT",
   "scripts": {
-    "start:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless offline --stage local",
+    "start:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless offline --stage local --host 0.0.0.0",
     "deploy:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless deploy --stage local"
   },
   "dependencies": {
