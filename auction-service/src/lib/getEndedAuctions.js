@@ -1,6 +1,5 @@
-import AWS from 'aws-sdk';
-
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+import { ddb } from '../../../shared/aws';
+import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function getEndedAuctions() {
   const now = new Date();
@@ -17,6 +16,6 @@ export async function getEndedAuctions() {
     },
   };
 
-  const result = await dynamodb.query(params).promise();
+  const result = await ddb.send(new QueryCommand(params));
   return result.Items;
 }

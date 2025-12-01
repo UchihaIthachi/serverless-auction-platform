@@ -1,0 +1,11 @@
+FROM alpine:3.20
+RUN apk add --no-cache bash curl jq nodejs npm python3 py3-pip dos2unix \
+ && pip install --no-cache-dir --break-system-packages awscli
+WORKDIR /app
+COPY scripts /app/scripts
+RUN dos2unix /app/scripts/*.sh && chmod +x /app/scripts/test-local.sh && chmod +x /app/scripts/test-e2e.sh
+ENV AWS_ACCESS_KEY_ID=test \
+    AWS_SECRET_ACCESS_KEY=test \
+    AWS_DEFAULT_REGION=us-east-1 \
+    AWS_PAGER=""
+ENTRYPOINT ["/bin/bash"]

@@ -1,17 +1,16 @@
-import AWS from 'aws-sdk';
 import commonMiddleware from '../lib/commonMiddleware';
 import createError from 'http-errors';
-
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+import { ddb } from '../../../shared/aws';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 
 export async function getAuctionById(id) {
   let auction;
 
   try {
-    const result = await dynamodb.get({
+    const result = await ddb.send(new GetCommand({
       TableName: process.env.AUCTIONS_TABLE_NAME,
       Key: { id },
-    }).promise();
+    }));
 
     auction = result.Item;
   } catch (error) {
