@@ -22,7 +22,6 @@ provider:
 functions:
   auth:
     handler: src/handlers/auth.handler
-    cors: true
   publicEndpoint:
     handler: src/handlers/public.handler
     events:
@@ -36,37 +35,39 @@ functions:
       - http:
           path: private
           method: POST
-          authorizer: auth
+          authorizer:
+            name: auth
+            type: token
           cors: true
 
 resources:
   Resources:
     # This response is needed for custom authorizer failures cors support ¯\_(ツ)_/¯
     GatewayResponse:
-      Type: 'AWS::ApiGateway::GatewayResponse'
+      Type: "AWS::ApiGateway::GatewayResponse"
       Properties:
         ResponseParameters:
           gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
           gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
         ResponseType: EXPIRED_TOKEN
         RestApiId:
-          Ref: 'ApiGatewayRestApi'
-        StatusCode: '401'
+          Ref: "ApiGatewayRestApi"
+        StatusCode: "401"
     AuthFailureGatewayResponse:
-      Type: 'AWS::ApiGateway::GatewayResponse'
+      Type: "AWS::ApiGateway::GatewayResponse"
       Properties:
         ResponseParameters:
           gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
           gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
         ResponseType: UNAUTHORIZED
         RestApiId:
-          Ref: 'ApiGatewayRestApi'
-        StatusCode: '401'
+          Ref: "ApiGatewayRestApi"
+        StatusCode: "401"
 custom:
   awsEndpoint:
     local: http://localhost:4566
-    dev: ''
-    prod: ''
+    dev: ""
+    prod: ""
   localstack:
     stages: [local]
     host: http://localhost

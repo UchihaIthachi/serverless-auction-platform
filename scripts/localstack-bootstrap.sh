@@ -91,7 +91,7 @@ aws --endpoint-url="$ENDPOINT" s3 website "s3://${FRONTEND_BUCKET}" \
   --error-document index.html
 
 echo "[Bootstrap] Applying public-read bucket policy for frontend (LocalStack only)..."
-cat > /tmp/auction-frontend-policy.json << EOF
+cat > auction-frontend-policy.json << EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -108,6 +108,23 @@ EOF
 
 aws --endpoint-url="$ENDPOINT" s3api put-bucket-policy \
   --bucket "${FRONTEND_BUCKET}" \
-  --policy file:///tmp/auction-frontend-policy.json
+  --policy file://auction-frontend-policy.json
+
+# Auth Service Secrets
+if [ ! -f "auth-service/secret.pem" ]; then
+  echo "[Bootstrap] Creating auth-service/secret.pem..."
+  cat > auth-service/secret.pem << EOF
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdefghij
+klmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijkl
+mnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmn
+opqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnop
+qrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqr
+stuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklwc==
+-----END PUBLIC KEY-----
+EOF
+else
+  echo "[Bootstrap] auth-service/secret.pem already exists."
+fi
 
 echo "[Bootstrap] Done."
