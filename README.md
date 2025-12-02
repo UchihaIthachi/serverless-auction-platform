@@ -10,6 +10,10 @@ A **capstone project** built using **AWS**, following a **microservices architec
 graph TD
     User[User / Client]
 
+    subgraph "Frontend Infrastructure"
+        FrontendBucket[S3: FrontendBucket Website]
+    end
+
     subgraph "API Gateway (HTTP)"
         AuthAPI[Auth API]
         AuctionAPI[Auction API]
@@ -35,8 +39,9 @@ graph TD
         SES["SES: Email (LocalStack/AWS)"]
     end
 
-    User --> AuthAPI
-    User --> AuctionAPI
+    User -- "Load SPA" --> FrontendBucket
+    User -- "API Calls" --> AuthAPI
+    User -- "API Calls" --> AuctionAPI
 
     AuthAPI --> AuthLambda
     AuctionAPI --> AuctionLambda
@@ -311,6 +316,29 @@ The deployed frontend is a Single Page Application (SPA) that allows you to inte
     *   **View:** Click "Get Auction Details" to see the current state (e.g., highest bid).
 
 *(Note: URL style may differ slightly depending on your LocalStack version; in some setups you can also use bucket-style hostnames.)*
+
+### 🧪 Frontend Verification with Playwright
+
+We include a Python-based Playwright test suite to verify the frontend UI flows.
+
+#### Prerequisites
+- Python 3.x
+- Playwright (`pip install playwright` + `playwright install`)
+
+#### Running Tests
+
+1. **Mocked Backend (Default)**
+   This runs the tests using network interception (mocks), so you don't need the backend running.
+   ```bash
+   npm run test:frontend
+   ```
+
+2. **Real Backend (E2E)**
+   To run against the real local backend (ensure `npm run offline:auction` is running):
+   ```bash
+   export REAL_BACKEND=true
+   npm run test:frontend
+   ```
 
 ---
 

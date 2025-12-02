@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "mkdir -p out && cp src/index.html out/index.html"
+    "build": "mkdir -p out && cp src/index.html out/index.html && cp src/config.js out/config.js"
   }
 }

@@ -1,0 +1,94 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          cd auction-service && npm install && cd ..
+          cd auth-service && npm install && cd ..
+          cd notification-service && npm install && cd ..
+          cd frontend && npm install && cd ..
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install chromium
+
+      - name: Run Frontend Tests (Mocked)
+        run: npm run test:frontend
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          cd auction-service && npm install && cd ..
+          cd auth-service && npm install && cd ..
+          cd notification-service && npm install && cd ..
+          cd frontend && npm install && cd ..
+          npm install -g serverless@3
+
+      - name: Deploy Services
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          cd auction-service && sls deploy --stage dev
+          cd ../auth-service && sls deploy --stage dev
+          cd ../notification-service && sls deploy --stage dev
+
+      - name: Get Stack Info
+        id: stack-info
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          cd auction-service
+          # Extract Service Endpoint
+          # Use verbose to get outputs
+          INFO=$(sls info --verbose --stage dev)
+          
+          API_URL=$(echo "$INFO" | grep "ServiceEndpoint:" | awk '{print $2}')
+          echo "API_URL=$API_URL" >> $GITHUB_OUTPUT
+          
+          BUCKET_NAME=$(echo "$INFO" | grep "FrontendBucketName:" | awk '{print $2}')
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_OUTPUT
+
+      - name: Deploy Frontend
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          API_URL: ${{ steps.stack-info.outputs.API_URL }}
+          BUCKET_NAME: ${{ steps.stack-info.outputs.BUCKET_NAME }}
+        run: |
+          bash scripts/deploy-frontend-aws.sh "$API_URL" "$BUCKET_NAME"

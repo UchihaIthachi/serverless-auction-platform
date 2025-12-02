@@ -31,6 +31,13 @@ resources:
     AuctionsTable: ${file(resources/AuctionsTable.yml):AuctionsTable}
     AuctionsBucket: ${file(resources/AuctionsBucket.yml):AuctionsBucket}
     AuctionsBucketPolicy: ${file(resources/AuctionsBucket.yml):AuctionsBucketPolicy}
+    FrontendBucket: ${file(resources/FrontendBucket.yml):FrontendBucket}
+    FrontendBucketPolicy: ${file(resources/FrontendBucket.yml):FrontendBucketPolicy}
+  Outputs:
+    FrontendBucketName:
+      Value: !Ref FrontendBucket
+    FrontendUrl:
+      Value: !GetAtt FrontendBucket.WebsiteURL
     
 functions:
   createAuction:
@@ -107,3 +114,5 @@ custom:
     url: ${self:custom.config.mailQueueUrl}
   AuctionsBucket:
     name: ${self:custom.config.auctionsBucketName}
+  FrontendBucket:
+    name: ${self:custom.config.frontendBucketName}

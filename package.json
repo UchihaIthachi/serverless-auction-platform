@@ -9,6 +9,7 @@
     "local:down": "docker compose down",
     "local:logs": "docker logs -f localstack",
     "deploy:frontend:local": "bash scripts/deploy-frontend-local.sh",
+    "test:frontend": "python3 -m unittest frontend/tests/test_auction_frontend.py",
     "start:local": "npm run offline:auction",
     "offline:auction": "cd auction-service && npm run start:local",
     "offline:auth": "cd auth-service && sls offline --stage local",
