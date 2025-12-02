@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "start:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless offline --stage local --host 0.0.0.0",
-    "deploy:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless deploy --stage local"
+    "deploy:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless deploy --stage local",
+    "remove:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless remove --stage local"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

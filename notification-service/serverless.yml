@@ -43,8 +43,11 @@ custom:
     prod: ''
   localstack:
     stages: [local]
+    host: http://localhost
+    edgePort: 4566
+    autostart: false
     lambda:
-      mountCode: true
+      mountCode: false
   mailQueue:
     name: MailQueue-${self:provider.stage}
     arn: !GetAtt MailQueue.Arn

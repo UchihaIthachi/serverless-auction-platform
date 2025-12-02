@@ -69,8 +69,11 @@ custom:
     prod: ''
   localstack:
     stages: [local]
+    host: http://localhost
+    edgePort: 4566
+    autostart: false
     lambda:
-      mountCode: true
+      mountCode: false
   esbuild:
     bundle: true
     minify: false

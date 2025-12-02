@@ -340,6 +340,37 @@ We include a Python-based Playwright test suite to verify the frontend UI flows.
    npm run test:frontend
    ```
 
+### ☁️ Full LocalStack Deployment (Real Lambdas)
+
+For a more authentic simulation, you can deploy the backend services as actual Lambda functions inside LocalStack, instead of running them locally via `serverless-offline`.
+
+1. **Start LocalStack & Bootstrap**
+   ```bash
+   npm run local:up
+   ```
+
+2. **Deploy Backend Services**
+   This packages and deploys all services to LocalStack:
+   ```bash
+   npm run deploy:local:all
+   ```
+
+3. **Deploy Frontend**
+   This builds the frontend and configures it to talk to the deployed LocalStack APIs:
+   ```bash
+   npm run deploy:frontend:local
+   ```
+
+4. **Access the App**
+   Open the S3 website URL (hosted by LocalStack):
+   ```bash
+   # Prints the URL content
+   curl http://localhost:4566/auction-frontend-local/index.html | head
+   ```
+   Or visit `http://localhost:4566/auction-frontend-local/index.html` in your browser.
+
+   The frontend will automatically use the LocalStack API Gateway endpoints (e.g. `http://localhost:4566/restapis/...`).
+
 ---
 
 ## 🏗️ Deployment (AWS)
