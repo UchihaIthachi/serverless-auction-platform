@@ -3,3 +3,4 @@ authorizer: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-servic
 mailQueueArn: ${cf:notification-service-dev.MailQueueArn}
 mailQueueUrl: ${cf:notification-service-dev.MailQueueUrl}
 auctionsBucketName: auctions-bucket-sj19asxm-dev
+frontendBucketName: sls-auctions-frontend-dev-#{AWS::AccountId}

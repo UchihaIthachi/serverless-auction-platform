@@ -10,6 +10,10 @@ A **capstone project** built using **AWS**, following a **microservices architec
 graph TD
     User[User / Client]
 
+    subgraph "Frontend Infrastructure"
+        FrontendBucket[S3: FrontendBucket Website]
+    end
+
     subgraph "API Gateway (HTTP)"
         AuthAPI[Auth API]
         AuctionAPI[Auction API]
@@ -35,8 +39,9 @@ graph TD
         SES["SES: Email (LocalStack/AWS)"]
     end
 
-    User --> AuthAPI
-    User --> AuctionAPI
+    User -- "Load SPA" --> FrontendBucket
+    User -- "API Calls" --> AuthAPI
+    User -- "API Calls" --> AuctionAPI
 
     AuthAPI --> AuthLambda
     AuctionAPI --> AuctionLambda
@@ -265,6 +270,75 @@ aws --endpoint-url=http://localhost:3002 lambda invoke \
 ```
 
 _(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RPC. If not, use the LocalStack endpoint `http://localhost:4566` if deployed there. This simulates the scheduled `processAuctions` function that would normally be triggered by CloudWatch Events in AWS.)_
+
+### 🌐 Frontend Deployment on LocalStack (S3 Website)
+
+You can deploy the frontend into LocalStack’s S3 website hosting for a fully local end-to-end experience.
+
+#### 1. Build & Deploy Frontend
+
+```bash
+# From repo root
+npm run local:up              # if not already running
+npm run deploy:frontend:local
+```
+
+This will:
+
+* Build the frontend app (e.g. in `frontend/out`)
+* Sync the static files to the `auction-frontend-local` S3 bucket in LocalStack
+
+#### 2. Access the Frontend
+
+Try:
+
+```bash
+curl http://localhost:4566/auction-frontend-local/index.html
+```
+
+Or open the equivalent URL in your browser.
+
+**Using the Web Interface:**
+
+The deployed frontend is a Single Page Application (SPA) that allows you to interact with the backend services directly.
+
+1.  **Ensure Services are Running:**
+    *   LocalStack: `npm run local:up`
+    *   Auction Service: `npm run offline:auction` (Runs on port 3000)
+
+2.  **Open the Page:**
+    Navigate to `http://localhost:4566/auction-frontend-local/index.html` in your browser.
+
+3.  **Interact:**
+    *   **Login:** Enter any email/password (simulated for local dev) to authenticate.
+    *   **Create Auction:** Enter a title and click "Create Auction". The new ID will be auto-filled.
+    *   **Bid:** Enter an amount and click "Place Bid".
+    *   **View:** Click "Get Auction Details" to see the current state (e.g., highest bid).
+
+*(Note: URL style may differ slightly depending on your LocalStack version; in some setups you can also use bucket-style hostnames.)*
+
+### 🧪 Frontend Verification with Playwright
+
+We include a Python-based Playwright test suite to verify the frontend UI flows.
+
+#### Prerequisites
+- Python 3.x
+- Playwright (`pip install playwright` + `playwright install`)
+
+#### Running Tests
+
+1. **Mocked Backend (Default)**
+   This runs the tests using network interception (mocks), so you don't need the backend running.
+   ```bash
+   npm run test:frontend
+   ```
+
+2. **Real Backend (E2E)**
+   To run against the real local backend (ensure `npm run offline:auction` is running):
+   ```bash
+   export REAL_BACKEND=true
+   npm run test:frontend
+   ```
 
 ---
 
