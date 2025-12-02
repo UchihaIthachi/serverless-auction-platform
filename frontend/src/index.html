@@ -2,10 +2,194 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auction Platform</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        section { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        h2 { margin-top: 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 3px; }
+        button:hover { background-color: #0056b3; }
+        #output { background: #f4f4f4; padding: 15px; border: 1px solid #ddd; white-space: pre-wrap; min-height: 100px; }
+        .hidden { display: none; }
+    </style>
 </head>
 <body>
     <h1>Welcome to the Auction Platform</h1>
-    <p>Deployed on LocalStack S3</p>
+    <p>Deployed on LocalStack S3. Use this page to interact with the backend.</p>
+
+    <!-- Authentication -->
+    <section id="auth-section">
+        <h2>Authentication</h2>
+        <form id="login-form">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="user@example.com" value="seller@example.com">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="password" value="password">
+            <button type="submit">Log In</button>
+        </form>
+        <div id="logged-in-msg" class="hidden">
+            <p>Logged in as <span id="user-email"></span></p>
+            <button id="logout-btn">Log Out</button>
+        </div>
+    </section>
+
+    <!-- Create Auction -->
+    <section id="create-auction-section">
+        <h2>Create Auction</h2>
+        <form id="create-auction-form">
+            <label for="auction-title">Title</label>
+            <input type="text" id="auction-title" placeholder="e.g. Vintage Camera">
+            <button type="submit">Create Auction</button>
+        </form>
+    </section>
+
+    <!-- Bid & View -->
+    <section id="bid-view-section">
+        <h2>Bid & View Auction</h2>
+        <label for="auction-id">Auction ID</label>
+        <input type="text" id="auction-id" placeholder="UUID from creation">
+        
+        <label for="bid-amount">Bid Amount</label>
+        <input type="number" id="bid-amount" placeholder="50">
+        
+        <div style="margin-top: 10px;">
+            <button id="place-bid-btn">Place Bid</button>
+            <button id="get-details-btn" style="background-color: #28a745;">Get Auction Details</button>
+        </div>
+    </section>
+
+    <!-- Output -->
+    <section>
+        <h2>Output</h2>
+        <pre id="output">Results will appear here...</pre>
+    </section>
+
+    <script>
+        const API_BASE = window.AUCTION_API_BASE || "http://localhost:3000";
+        // Auth service doesn't have a public login endpoint in this repo, so we mock it or point to a placeholder.
+        // Assuming auth-service runs on same port or 3000 if running alone.
+        const AUTH_BASE = window.AUTH_API_BASE || "http://localhost:3000"; 
+        
+        let authToken = null;
+        let currentUser = null;
+
+        const output = document.getElementById('output');
+        const loginForm = document.getElementById('login-form');
+        const loggedInMsg = document.getElementById('logged-in-msg');
+        const userEmailSpan = document.getElementById('user-email');
+        const logoutBtn = document.getElementById('logout-btn');
+        const createForm = document.getElementById('create-auction-form');
+        const auctionIdInput = document.getElementById('auction-id');
+        const bidAmountInput = document.getElementById('bid-amount');
+        const placeBidBtn = document.getElementById('place-bid-btn');
+        const getDetailsBtn = document.getElementById('get-details-btn');
+
+        function log(data) {
+            output.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            try {
+                const options = { method, headers };
+                if (body) options.body = JSON.stringify(body);
+
+                const res = await fetch(`${API_BASE}${endpoint}`, options);
+                const text = await res.text();
+                
+                let json;
+                try {
+                    json = JSON.parse(text);
+                } catch (e) {
+                    json = text;
+                }
+
+                if (!res.ok) {
+                    throw { status: res.status, body: json };
+                }
+                return json;
+            } catch (err) {
+                log(err);
+                throw err;
+            }
+        }
+
+        // Login Logic
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            // Since there is no real login endpoint, we simulate success.
+            
+            console.log('Simulating login for', email);
+            authToken = "DUMMY_TOKEN"; // In local mode, the backend ignores this anyway.
+            currentUser = email;
+            
+            loginForm.classList.add('hidden');
+            loggedInMsg.classList.remove('hidden');
+            userEmailSpan.textContent = email;
+            log({ message: "Logged in (Simulated)", token: authToken });
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            authToken = null;
+            currentUser = null;
+            loginForm.classList.remove('hidden');
+            loggedInMsg.classList.add('hidden');
+            log("Logged out.");
+        });
+
+        // Create Auction
+        createForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('auction-title').value;
+            if (!title) return alert('Title is required');
+
+            try {
+                const res = await apiCall('/auction', 'POST', { title });
+                log(res);
+                if (res.id) {
+                    auctionIdInput.value = res.id;
+                }
+            } catch (e) {
+                // handled in apiCall
+            }
+        });
+
+        // Place Bid
+        placeBidBtn.addEventListener('click', async () => {
+            const id = auctionIdInput.value;
+            const amount = parseFloat(bidAmountInput.value);
+            
+            if (!id || !amount) return alert('ID and Amount are required');
+
+            try {
+                const res = await apiCall(`/auction/${id}/bid`, 'PATCH', { amount });
+                log(res);
+            } catch (e) {
+                // handled
+            }
+        });
+
+        // Get Details
+        getDetailsBtn.addEventListener('click', async () => {
+            const id = auctionIdInput.value;
+            if (!id) return alert('ID is required');
+
+            try {
+                const res = await apiCall(`/auction/${id}`, 'GET');
+                log(res);
+            } catch (e) {
+                // handled
+            }
+        });
+
+    </script>
 </body>
 </html>

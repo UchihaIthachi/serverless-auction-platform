@@ -28,4 +28,10 @@ aws --endpoint-url="$ENDPOINT" sqs receive-message --queue-url "$QUEUE_URL" --ma
 # ---- SES: stub identity ----
 aws --endpoint-url="$ENDPOINT" ses verify-email-identity --email-address test@example.com >/dev/null || true
 
+# ---- S3: Frontend Bucket ----
+if ! aws --endpoint-url="$ENDPOINT" s3 ls "s3://auction-frontend-local" >/dev/null 2>&1; then
+  echo "[SMOKE] Missing bucket auction-frontend-local"
+  exit 1
+fi
+
 echo "[SMOKE] OK"

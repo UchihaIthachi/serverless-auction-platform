@@ -293,6 +293,23 @@ curl http://localhost:4566/auction-frontend-local/index.html
 
 Or open the equivalent URL in your browser.
 
+**Using the Web Interface:**
+
+The deployed frontend is a Single Page Application (SPA) that allows you to interact with the backend services directly.
+
+1.  **Ensure Services are Running:**
+    *   LocalStack: `npm run local:up`
+    *   Auction Service: `npm run offline:auction` (Runs on port 3000)
+
+2.  **Open the Page:**
+    Navigate to `http://localhost:4566/auction-frontend-local/index.html` in your browser.
+
+3.  **Interact:**
+    *   **Login:** Enter any email/password (simulated for local dev) to authenticate.
+    *   **Create Auction:** Enter a title and click "Create Auction". The new ID will be auto-filled.
+    *   **Bid:** Enter an amount and click "Place Bid".
+    *   **View:** Click "Get Auction Details" to see the current state (e.g., highest bid).
+
 *(Note: URL style may differ slightly depending on your LocalStack version; in some setups you can also use bucket-style hostnames.)*
 
 ---
