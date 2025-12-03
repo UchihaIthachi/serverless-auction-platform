@@ -1,5 +1,5 @@
 awsEndpoint: http://localhost:4566
-authorizer: ''
+authorizer: arn:aws:lambda:us-east-1:000000000000:function:auth-service-local-auth
 mailQueueArn: arn:aws:sqs:us-east-1:000000000000:MailQueue-local
 mailQueueUrl: http://localhost:4566/000000000000/MailQueue-local
 auctionsBucketName: auctions-bucket-sj19asxm-local

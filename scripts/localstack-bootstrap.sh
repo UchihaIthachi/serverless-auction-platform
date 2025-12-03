@@ -91,7 +91,9 @@ aws --endpoint-url="$ENDPOINT" s3 website "s3://${FRONTEND_BUCKET}" \
   --error-document index.html
 
 echo "[Bootstrap] Applying public-read bucket policy for frontend (LocalStack only)..."
-cat > auction-frontend-policy.json << EOF
+
+# Construct policy JSON inline using a variable to avoid file path issues
+read -r -d '' POLICY_JSON <<EOF || true
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -108,9 +110,10 @@ EOF
 
 aws --endpoint-url="$ENDPOINT" s3api put-bucket-policy \
   --bucket "${FRONTEND_BUCKET}" \
-  --policy file://auction-frontend-policy.json
+  --policy "$POLICY_JSON"
 
 # Auth Service Secrets
+mkdir -p auth-service
 if [ ! -f "auth-service/secret.pem" ]; then
   echo "[Bootstrap] Creating auth-service/secret.pem..."
   cat > auth-service/secret.pem << EOF

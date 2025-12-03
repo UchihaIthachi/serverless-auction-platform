@@ -14,36 +14,58 @@ if ! command -v jq &> /dev/null; then
 fi
 
 echo "[1/4] Creating Auction..."
-RESPONSE=$(curl -s -X POST "$API_URL/auction" \
+# Calculate a past timestamp (5 seconds ago) to ensure the auction is ready to be closed immediately.
+# Using UTC to match server time. Suppress deprecation warnings for cleaner output.
+ENDING_AT=$(python3 -W ignore -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(seconds=5)).isoformat() + "Z")')
+echo "Ending At: $ENDING_AT"
+
+# Capture response or fail if connection refused/HTTP error
+if ! RESPONSE=$(curl -s -f -X POST "$API_URL/auction" \
   -H "Content-Type: application/json" \
-  -d '{"title": "Automated Verification Auction"}')
+  -d "{\"title\": \"Automated Verification Auction\", \"endingAt\": \"$ENDING_AT\"}"); then
+    echo "Error: Failed to create auction. Could not connect to $API_URL/auction or server returned an error."
+    echo "Make sure the services are running (e.g., 'npm run start:local')."
+    exit 1
+fi
 
 echo "Response: $RESPONSE"
 
 AUCTION_ID=$(echo "$RESPONSE" | jq -r '.id')
 
 if [ "$AUCTION_ID" == "null" ] || [ -z "$AUCTION_ID" ]; then
-    echo "Error: Failed to create auction. ID is null."
+    echo "Error: Failed to create auction. Response was: $RESPONSE"
     exit 1
 fi
 
 echo "Auction ID: $AUCTION_ID"
 
 echo "[2/4] Placing Bid..."
-curl -s -X PATCH "$API_URL/auction/$AUCTION_ID/bid" \
+if ! curl -s -f -X PATCH "$API_URL/auction/$AUCTION_ID/bid" \
   -H "Content-Type: application/json" \
-  -d '{"amount": 50}' | jq .
+  -d '{"amount": 50}' | jq .; then
+    echo "Error: Failed to place bid."
+    exit 1
+fi
 
 echo "[3/4] Triggering processAuctions Lambda (port 3002)..."
-aws --endpoint-url="$LAMBDA_URL" lambda invoke \
+# Invoke the lambda directly via serverless-offline's RPC port
+if ! aws --endpoint-url="$LAMBDA_URL" lambda invoke \
   --function-name auction-service-local-processAuctions \
   --payload '{}' \
-  response.json
+  response.json; then
+    echo "Error: Failed to invoke Lambda at $LAMBDA_URL."
+    exit 1
+fi
 
 echo "Lambda Response:"
-cat response.json
-rm response.json
+if [ -f response.json ]; then
+  cat response.json
+  rm response.json
+else
+  echo "Error: No response.json found."
+fi
 
+echo ""
 echo "[4/4] Verifying Auction Status..."
 FINAL_STATUS=$(curl -s "$API_URL/auction/$AUCTION_ID")
 echo "$FINAL_STATUS" | jq .
@@ -54,5 +76,5 @@ if [ "$STATUS" == "CLOSED" ]; then
     echo "✅ Success! Auction is CLOSED."
 else
     echo "⚠️ Auction status is $STATUS (Expected: CLOSED)."
-    echo "Note: The lambda runs every minute, so it might have already closed it if you waited too long, or maybe the time logic requires a slight delay."
+    exit 1
 fi

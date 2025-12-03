@@ -1,78 +1,91 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
-ENDPOINT="${1:-http://localhost:4566}"
-REGION="${2:-us-east-1}"
 
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION="${REGION}"
+# Configuration
+# Inside the tester container, these env vars are set by docker-compose.test.yml
+API_URL="${API_BASE_URL:-http://host.docker.internal:3000}"
+# If LAMBDA_RPC_ENDPOINT is not set, infer it (replace 3000 with 3002)
+LAMBDA_URL="${LAMBDA_RPC_ENDPOINT:-$(echo "$API_URL" | sed 's/3000/3002/')}"
+# LocalStack endpoint (for bootstrapping)
+LOCALSTACK_URL="${LOCALSTACK_ENDPOINT:-http://localstack:4566}"
+REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
-echo "[Bootstrap] Using endpoint: $ENDPOINT"
+echo "Running E2E Tests..."
+echo "API URL: $API_URL"
+echo "Lambda URL: $LAMBDA_URL"
+echo "LocalStack URL: $LOCALSTACK_URL"
 
-# DynamoDB Tables
-echo "[Bootstrap] Creating DynamoDB table: AuctionsTable-local..."
-RECREATE_TABLE="false"
-if aws --endpoint-url="$ENDPOINT" dynamodb list-tables --query "TableNames" | grep -q "AuctionsTable-local"; then
-  # Check if the required GSI exists
-  if ! aws --endpoint-url="$ENDPOINT" dynamodb describe-table --table-name AuctionsTable-local | grep -q "statusAndEndDate"; then
-    echo "[Bootstrap] Table 'AuctionsTable-local' exists but is missing GSI 'statusAndEndDate'. Recreating..."
-    aws --endpoint-url="$ENDPOINT" dynamodb delete-table --table-name AuctionsTable-local
-    echo "[Bootstrap] Waiting for table deletion..."
-    aws --endpoint-url="$ENDPOINT" dynamodb wait table-not-exists --table-name AuctionsTable-local
-    RECREATE_TABLE="true"
-  else
-    echo "[Bootstrap] Table 'AuctionsTable-local' exists and has required GSI."
-  fi
+# 1. Bootstrap LocalStack (ensure resources exist)
+echo "[E2E] Bootstrapping LocalStack..."
+# Assuming scripts are at /app/scripts inside the container
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/localstack-bootstrap.sh" "$LOCALSTACK_URL" "$REGION"
+
+# 2. Run Verification Flow
+echo "[E2E] Starting Auction Flow Verification..."
+
+# Check dependencies (jq is installed in tester)
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required."
+    exit 1
+fi
+
+echo "[1/4] Creating Auction..."
+# Calculate a past timestamp (5 seconds ago) using Python to ensure expiration
+ENDING_AT=$(python3 -W ignore -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(seconds=5)).isoformat() + "Z")')
+echo "Ending At: $ENDING_AT"
+
+# Capture response
+RESPONSE=$(curl -s -f -X POST "$API_URL/auction" \
+  -H "Content-Type: application/json" \
+  -d "{\"title\": \"E2E Test Auction\", \"endingAt\": \"$ENDING_AT\"}") || {
+    echo "Error: Failed to connect to $API_URL/auction"
+    exit 1
+}
+
+echo "Response: $RESPONSE"
+AUCTION_ID=$(echo "$RESPONSE" | jq -r '.id')
+
+if [ "$AUCTION_ID" == "null" ] || [ -z "$AUCTION_ID" ]; then
+    echo "Error: Failed to create auction."
+    exit 1
+fi
+echo "Auction ID: $AUCTION_ID"
+
+echo "[2/4] Placing Bid..."
+curl -s -f -X PATCH "$API_URL/auction/$AUCTION_ID/bid" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 50}' | jq . || {
+    echo "Error: Failed to place bid."
+    exit 1
+}
+
+echo "[3/4] Triggering processAuctions Lambda..."
+# We invoke the lambda exposed by serverless-offline on the host
+aws --endpoint-url="$LAMBDA_URL" lambda invoke \
+  --function-name auction-service-local-processAuctions \
+  --payload '{}' \
+  response.json || {
+    echo "Error: Failed to invoke lambda at $LAMBDA_URL"
+    exit 1
+}
+
+echo "Lambda Response:"
+if [ -f response.json ]; then
+  cat response.json
+  rm response.json
+fi
+
+echo ""
+echo "[4/4] Verifying Auction Status..."
+FINAL_STATUS=$(curl -s "$API_URL/auction/$AUCTION_ID")
+echo "$FINAL_STATUS" | jq .
+
+STATUS=$(echo "$FINAL_STATUS" | jq -r '.status')
+
+if [ "$STATUS" == "CLOSED" ]; then
+    echo "✅ Success! Auction is CLOSED."
 else
-  RECREATE_TABLE="true"
+    echo "⚠️ Auction status is $STATUS (Expected: CLOSED)."
+    exit 1
 fi
-
-if [ "$RECREATE_TABLE" == "true" ]; then
-  aws --endpoint-url="$ENDPOINT" dynamodb create-table \
-    --table-name AuctionsTable-local \
-    --attribute-definitions \
-        AttributeName=id,AttributeType=S \
-        AttributeName=status,AttributeType=S \
-        AttributeName=endingAt,AttributeType=S \
-    --key-schema AttributeName=id,KeyType=HASH \
-    --global-secondary-indexes \
-        "[
-            {
-                \"IndexName\": \"statusAndEndDate\",
-                \"KeySchema\": [
-                    {\"AttributeName\":\"status\",\"KeyType\":\"HASH\"},
-                    {\"AttributeName\":\"endingAt\",\"KeyType\":\"RANGE\"}
-                ],
-                \"Projection\": {
-                    \"ProjectionType\": \"ALL\"
-                }
-            }
-        ]" \
-    --billing-mode PAY_PER_REQUEST > /dev/null
-fi
-
-# SQS Queues
-echo "[Bootstrap] Creating SQS queue: MailQueue-local..."
-if ! aws --endpoint-url="$ENDPOINT" sqs get-queue-url --queue-name MailQueue-local > /dev/null 2>&1; then
-  aws --endpoint-url="$ENDPOINT" sqs create-queue --queue-name MailQueue-local > /dev/null
-else
-  echo "[Bootstrap] SQS queue MailQueue-local already exists."
-fi
-
-# S3 Buckets
-echo "[Bootstrap] Creating S3 bucket: auctions-bucket-sj19asxm-local..."
-if ! aws --endpoint-url="$ENDPOINT" s3api head-bucket --bucket auctions-bucket-sj19asxm-local > /dev/null 2>&1; then
-  aws --endpoint-url="$ENDPOINT" s3 mb s3://auctions-bucket-sj19asxm-local > /dev/null
-else
-  echo "[Bootstrap] S3 bucket auctions-bucket-sj19asxm-local already exists."
-fi
-
-# SES Identity
-echo "[Bootstrap] Verifying SES email identity: test@example.com..."
-if ! aws --endpoint-url="$ENDPOINT" ses get-identity-verification-attributes --identities "test@example.com" | grep -q "Success"; then
-  aws --endpoint-url="$ENDPOINT" ses verify-email-identity --email-address test@example.com > /dev/null
-else
-  echo "[Bootstrap] SES email identity test@example.com already verified."
-fi
-
-echo "[Bootstrap] Done."
