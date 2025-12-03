@@ -1,3 +1,1 @@
-authorizer:
-  name: auth
-  type: token
+authorizer: auth

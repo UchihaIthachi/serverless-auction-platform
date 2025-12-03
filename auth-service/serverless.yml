@@ -29,14 +29,14 @@ functions:
           path: public
           method: POST
           cors: true
-  privateEndpoint:
-    handler: src/handlers/private.handler
-    events:
-      - http:
-          path: private
-          method: POST
-          authorizer: ${self:custom.config.authorizer}
-          cors: true
+  # privateEndpoint:
+  #   handler: src/handlers/private.handler
+  #   events:
+  #     - http:
+  #         path: private
+  #         method: POST
+  #         authorizer: ${self:custom.config.authorizer}
+  #         cors: true
 
 resources:
   Resources:
