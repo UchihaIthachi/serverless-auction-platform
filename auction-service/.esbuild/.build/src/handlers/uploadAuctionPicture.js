@@ -2140,8 +2140,6 @@ var require_util = __commonJS({
       ucs2length: require_ucs2length(),
       varOccurences,
       varReplace,
-      cleanUpCode,
-      finalCleanUpCode,
       schemaHasRules,
       schemaHasRulesExcept,
       schemaUnknownRules,
@@ -2159,7 +2157,7 @@ var require_util = __commonJS({
       for (var key in o6) to[key] = o6[key];
       return to;
     }
-    function checkDataType(dataType, data3, negate) {
+    function checkDataType(dataType, data3, strictNumbers, negate) {
       var EQUAL = negate ? " !== " : " === ", AND = negate ? " || " : " && ", OK = negate ? "!" : "", NOT = negate ? "" : "!";
       switch (dataType) {
         case "null":
@@ -2169,15 +2167,17 @@ var require_util = __commonJS({
         case "object":
           return "(" + OK + data3 + AND + "typeof " + data3 + EQUAL + '"object"' + AND + NOT + "Array.isArray(" + data3 + "))";
         case "integer":
-          return "(typeof " + data3 + EQUAL + '"number"' + AND + NOT + "(" + data3 + " % 1)" + AND + data3 + EQUAL + data3 + ")";
+          return "(typeof " + data3 + EQUAL + '"number"' + AND + NOT + "(" + data3 + " % 1)" + AND + data3 + EQUAL + data3 + (strictNumbers ? AND + OK + "isFinite(" + data3 + ")" : "") + ")";
+        case "number":
+          return "(typeof " + data3 + EQUAL + '"' + dataType + '"' + (strictNumbers ? AND + OK + "isFinite(" + data3 + ")" : "") + ")";
         default:
           return "typeof " + data3 + EQUAL + '"' + dataType + '"';
       }
     }
-    function checkDataTypes(dataTypes, data3) {
+    function checkDataTypes(dataTypes, data3, strictNumbers) {
       switch (dataTypes.length) {
         case 1:
-          return checkDataType(dataTypes[0], data3, true);
+          return checkDataType(dataTypes[0], data3, strictNumbers, true);
         default:
           var code = "";
           var types = toHash(dataTypes);
@@ -2190,7 +2190,7 @@ var require_util = __commonJS({
           }
           if (types.number) delete types.integer;
           for (var t6 in types)
-            code += (code ? " && " : "") + checkDataType(t6, data3, true);
+            code += (code ? " && " : "") + checkDataType(t6, data3, strictNumbers, true);
           return code;
       }
     }
@@ -2232,30 +2232,6 @@ var require_util = __commonJS({
       dataVar += "([^0-9])";
       expr = expr.replace(/\$/g, "$$$$");
       return str.replace(new RegExp(dataVar, "g"), expr + "$1");
-    }
-    var EMPTY_ELSE = /else\s*{\s*}/g;
-    var EMPTY_IF_NO_ELSE = /if\s*\([^)]+\)\s*\{\s*\}(?!\s*else)/g;
-    var EMPTY_IF_WITH_ELSE = /if\s*\(([^)]+)\)\s*\{\s*\}\s*else(?!\s*if)/g;
-    function cleanUpCode(out) {
-      return out.replace(EMPTY_ELSE, "").replace(EMPTY_IF_NO_ELSE, "").replace(EMPTY_IF_WITH_ELSE, "if (!($1))");
-    }
-    var ERRORS_REGEXP = /[^v.]errors/g;
-    var REMOVE_ERRORS = /var errors = 0;|var vErrors = null;|validate.errors = vErrors;/g;
-    var REMOVE_ERRORS_ASYNC = /var errors = 0;|var vErrors = null;/g;
-    var RETURN_VALID = "return errors === 0;";
-    var RETURN_TRUE = "validate.errors = null; return true;";
-    var RETURN_ASYNC = /if \(errors === 0\) return data;\s*else throw new ValidationError\(vErrors\);/;
-    var RETURN_DATA_ASYNC = "return data;";
-    var ROOTDATA_REGEXP = /[^A-Za-z_$]rootData[^A-Za-z0-9_$]/g;
-    var REMOVE_ROOTDATA = /if \(rootData === undefined\) rootData = data;/;
-    function finalCleanUpCode(out, async) {
-      var matches = out.match(ERRORS_REGEXP);
-      if (matches && matches.length == 2) {
-        out = async ? out.replace(REMOVE_ERRORS_ASYNC, "").replace(RETURN_ASYNC, RETURN_DATA_ASYNC) : out.replace(REMOVE_ERRORS, "").replace(RETURN_VALID, RETURN_TRUE);
-      }
-      matches = out.match(ROOTDATA_REGEXP);
-      if (!matches || matches.length !== 3) return out;
-      return out.replace(REMOVE_ROOTDATA, "");
     }
     function schemaHasRules(schema2, rules) {
       if (typeof schema2 == "boolean") return !schema2;
@@ -2315,7 +2291,7 @@ var require_util = __commonJS({
     }
     function joinPaths(a6, b6) {
       if (a6 == '""') return b6;
-      return (a6 + " + " + b6).replace(/' \+ '/g, "");
+      return (a6 + " + " + b6).replace(/([^\\])' \+ '/g, "$1");
     }
     function unescapeFragment(str) {
       return unescapeJsonPointer(decodeURIComponent(str));
@@ -2825,7 +2801,7 @@ var require_validate = __commonJS({
         it.rootId = it.resolve.fullPath(it.self._getId(it.root.schema));
         it.baseId = it.baseId || it.rootId;
         delete it.isTop;
-        it.dataPathArr = [void 0];
+        it.dataPathArr = [""];
         if (it.schema.default !== void 0 && it.opts.useDefaults && it.opts.strictDefaults) {
           var $defaultMsg = "default is ignored in the schema root";
           if (it.opts.strictDefaults === "log") it.logger.warn($defaultMsg);
@@ -2874,45 +2850,37 @@ var require_validate = __commonJS({
         if ($coerceToTypes || $typeIsArray || $rulesGroup === true || $rulesGroup && !$shouldUseGroup($rulesGroup)) {
           var $schemaPath = it.schemaPath + ".type", $errSchemaPath = it.errSchemaPath + "/type";
           var $schemaPath = it.schemaPath + ".type", $errSchemaPath = it.errSchemaPath + "/type", $method = $typeIsArray ? "checkDataTypes" : "checkDataType";
-          out += " if (" + it.util[$method]($typeSchema, $data, true) + ") { ";
+          out += " if (" + it.util[$method]($typeSchema, $data, it.opts.strictNumbers, true) + ") { ";
           if ($coerceToTypes) {
             var $dataType = "dataType" + $lvl, $coerced = "coerced" + $lvl;
-            out += " var " + $dataType + " = typeof " + $data + "; ";
+            out += " var " + $dataType + " = typeof " + $data + "; var " + $coerced + " = undefined; ";
             if (it.opts.coerceTypes == "array") {
-              out += " if (" + $dataType + " == 'object' && Array.isArray(" + $data + ")) " + $dataType + " = 'array'; ";
+              out += " if (" + $dataType + " == 'object' && Array.isArray(" + $data + ") && " + $data + ".length == 1) { " + $data + " = " + $data + "[0]; " + $dataType + " = typeof " + $data + "; if (" + it.util.checkDataType(it.schema.type, $data, it.opts.strictNumbers) + ") " + $coerced + " = " + $data + "; } ";
             }
-            out += " var " + $coerced + " = undefined; ";
-            var $bracesCoercion = "";
+            out += " if (" + $coerced + " !== undefined) ; ";
             var arr1 = $coerceToTypes;
             if (arr1) {
               var $type, $i = -1, l1 = arr1.length - 1;
               while ($i < l1) {
                 $type = arr1[$i += 1];
-                if ($i) {
-                  out += " if (" + $coerced + " === undefined) { ";
-                  $bracesCoercion += "}";
-                }
-                if (it.opts.coerceTypes == "array" && $type != "array") {
-                  out += " if (" + $dataType + " == 'array' && " + $data + ".length == 1) { " + $coerced + " = " + $data + " = " + $data + "[0]; " + $dataType + " = typeof " + $data + ";  } ";
-                }
                 if ($type == "string") {
-                  out += " if (" + $dataType + " == 'number' || " + $dataType + " == 'boolean') " + $coerced + " = '' + " + $data + "; else if (" + $data + " === null) " + $coerced + " = ''; ";
+                  out += " else if (" + $dataType + " == 'number' || " + $dataType + " == 'boolean') " + $coerced + " = '' + " + $data + "; else if (" + $data + " === null) " + $coerced + " = ''; ";
                 } else if ($type == "number" || $type == "integer") {
-                  out += " if (" + $dataType + " == 'boolean' || " + $data + " === null || (" + $dataType + " == 'string' && " + $data + " && " + $data + " == +" + $data + " ";
+                  out += " else if (" + $dataType + " == 'boolean' || " + $data + " === null || (" + $dataType + " == 'string' && " + $data + " && " + $data + " == +" + $data + " ";
                   if ($type == "integer") {
                     out += " && !(" + $data + " % 1)";
                   }
                   out += ")) " + $coerced + " = +" + $data + "; ";
                 } else if ($type == "boolean") {
-                  out += " if (" + $data + " === 'false' || " + $data + " === 0 || " + $data + " === null) " + $coerced + " = false; else if (" + $data + " === 'true' || " + $data + " === 1) " + $coerced + " = true; ";
+                  out += " else if (" + $data + " === 'false' || " + $data + " === 0 || " + $data + " === null) " + $coerced + " = false; else if (" + $data + " === 'true' || " + $data + " === 1) " + $coerced + " = true; ";
                 } else if ($type == "null") {
-                  out += " if (" + $data + " === '' || " + $data + " === 0 || " + $data + " === false) " + $coerced + " = null; ";
+                  out += " else if (" + $data + " === '' || " + $data + " === 0 || " + $data + " === false) " + $coerced + " = null; ";
                 } else if (it.opts.coerceTypes == "array" && $type == "array") {
-                  out += " if (" + $dataType + " == 'string' || " + $dataType + " == 'number' || " + $dataType + " == 'boolean' || " + $data + " == null) " + $coerced + " = [" + $data + "]; ";
+                  out += " else if (" + $dataType + " == 'string' || " + $dataType + " == 'number' || " + $dataType + " == 'boolean' || " + $data + " == null) " + $coerced + " = [" + $data + "]; ";
                 }
               }
             }
-            out += " " + $bracesCoercion + " if (" + $coerced + " === undefined) {   ";
+            out += " else {   ";
             var $$outStack = $$outStack || [];
             $$outStack.push(out);
             out = "";
@@ -2951,7 +2919,7 @@ var require_validate = __commonJS({
             } else {
               out += " var err = " + __err + ";  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ";
             }
-            out += " } else {  ";
+            out += " } if (" + $coerced + " !== undefined) {  ";
             var $parentData = $dataLvl ? "data" + ($dataLvl - 1 || "") : "parentData", $parentDataProperty = $dataLvl ? it.dataPathArr[$dataLvl] : "parentDataProperty";
             out += " " + $data + " = " + $coerced + "; ";
             if (!$dataLvl) {
@@ -3021,7 +2989,7 @@ var require_validate = __commonJS({
             $rulesGroup = arr2[i22 += 1];
             if ($shouldUseGroup($rulesGroup)) {
               if ($rulesGroup.type) {
-                out += " if (" + it.util.checkDataType($rulesGroup.type, $data) + ") { ";
+                out += " if (" + it.util.checkDataType($rulesGroup.type, $data, it.opts.strictNumbers) + ") { ";
               }
               if (it.opts.useDefaults) {
                 if ($rulesGroup.type == "object" && it.schema.properties) {
@@ -3183,10 +3151,6 @@ var require_validate = __commonJS({
       } else {
         out += " var " + $valid + " = errors === errs_" + $lvl + ";";
       }
-      out = it.util.cleanUpCode(out);
-      if ($top) {
-        out = it.util.finalCleanUpCode(out, $async);
-      }
       function $shouldUseGroup($rulesGroup2) {
         var rules = $rulesGroup2.rules;
         for (var i6 = 0; i6 < rules.length; i6++)
@@ -3278,7 +3242,7 @@ var require_compile = __commonJS({
           self
         });
         sourceCode = vars(refVal, refValCode) + vars(patterns, patternCode) + vars(defaults, defaultCode) + vars(customRules, customRuleCode) + sourceCode;
-        if (opts.processCode) sourceCode = opts.processCode(sourceCode);
+        if (opts.processCode) sourceCode = opts.processCode(sourceCode, _schema);
         var validate;
         try {
           var makeValidate = new Function(
@@ -3518,7 +3482,7 @@ var require_formats = __commonJS({
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
     var URIREF = /^(?:[a-z][a-z0-9+\-.]*:)?(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'"()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'"()*+,;=:@]|%[0-9a-f]{2})*)*)?(?:\?(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'"()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
     var URITEMPLATE = /^(?:(?:[^\x00-\x20"'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#./;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?::[1-9][0-9]{0,3}|\*)?)*\})*$/i;
-    var URL2 = /^(?:(?:http[s\u017F]?|ftp):\/\/)(?:(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+(?::(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])*)?@)?(?:(?!10(?:\.[0-9]{1,3}){3})(?!127(?:\.[0-9]{1,3}){3})(?!169\.254(?:\.[0-9]{1,3}){2})(?!192\.168(?:\.[0-9]{1,3}){2})(?!172\.(?:1[6-9]|2[0-9]|3[01])(?:\.[0-9]{1,3}){2})(?:[1-9][0-9]?|1[0-9][0-9]|2[01][0-9]|22[0-3])(?:\.(?:1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){2}(?:\.(?:[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-4]))|(?:(?:(?:[0-9KSa-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+-?)*(?:[0-9KSa-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+)(?:\.(?:(?:[0-9KSa-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+-?)*(?:[0-9KSa-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+)*(?:\.(?:(?:[KSa-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]){2,})))(?::[0-9]{2,5})?(?:\/(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])*)?$/i;
+    var URL2 = /^(?:(?:http[s\u017F]?|ftp):\/\/)(?:(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+(?::(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])*)?@)?(?:(?!10(?:\.[0-9]{1,3}){3})(?!127(?:\.[0-9]{1,3}){3})(?!169\.254(?:\.[0-9]{1,3}){2})(?!192\.168(?:\.[0-9]{1,3}){2})(?!172\.(?:1[6-9]|2[0-9]|3[01])(?:\.[0-9]{1,3}){2})(?:[1-9][0-9]?|1[0-9][0-9]|2[01][0-9]|22[0-3])(?:\.(?:1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){2}(?:\.(?:[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-4]))|(?:(?:(?:[0-9a-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+-)*(?:[0-9a-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+)(?:\.(?:(?:[0-9a-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+-)*(?:[0-9a-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])+)*(?:\.(?:(?:[a-z\xA1-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]){2,})))(?::[0-9]{2,5})?(?:\/(?:[\0-\x08\x0E-\x1F!-\x9F\xA1-\u167F\u1681-\u1FFF\u200B-\u2027\u202A-\u202E\u2030-\u205E\u2060-\u2FFF\u3001-\uD7FF\uE000-\uFEFE\uFF00-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])*)?$/i;
     var UUID = /^(?:urn:uuid:)?[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
     var JSON_POINTER = /^(?:\/(?:[^~/]|~0|~1)*)*$/;
     var JSON_POINTER_URI_FRAGMENT = /^#(?:\/(?:[a-z0-9_\-.!$&'()*+,;:=@]|%[0-9a-f]{2}|~0|~1)*)*$/i;
@@ -3535,8 +3499,8 @@ var require_formats = __commonJS({
       time: /^(?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)?$/i,
       "date-time": /^\d\d\d\d-[0-1]\d-[0-3]\d[t\s](?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i,
       // uri: https://github.com/mafintosh/is-my-json-valid/blob/master/formats.js
-      uri: /^(?:[a-z][a-z0-9+-.]*:)(?:\/?\/)?[^\s]*$/i,
-      "uri-reference": /^(?:(?:[a-z][a-z0-9+-.]*:)?\/?\/)?(?:[^\\\s#][^\s#]*)?(?:#[^\\\s]*)?$/i,
+      uri: /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/)?[^\s]*$/i,
+      "uri-reference": /^(?:(?:[a-z][a-z0-9+\-.]*:)?\/?\/)?(?:[^\\\s#][^\s#]*)?(?:#[^\\\s]*)?$/i,
       "uri-template": URITEMPLATE,
       url: URL2,
       // email (sources from jsen validator):
@@ -3766,7 +3730,7 @@ var require_allOf = __commonJS({
         var $sch, $i = -1, l1 = arr1.length - 1;
         while ($i < l1) {
           $sch = arr1[$i += 1];
-          if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+          if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
             $allSchemasEmpty = false;
             $it.schema = $sch;
             $it.schemaPath = $schemaPath + "[" + $i + "]";
@@ -3787,7 +3751,6 @@ var require_allOf = __commonJS({
           out += " " + $closingBraces.slice(0, -1) + " ";
         }
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -3813,7 +3776,7 @@ var require_anyOf = __commonJS({
       $it.level++;
       var $nextValid = "valid" + $it.level;
       var $noEmptySchema = $schema.every(function($sch2) {
-        return it.opts.strictKeywords ? typeof $sch2 == "object" && Object.keys($sch2).length > 0 : it.util.schemaHasRules($sch2, it.RULES.all);
+        return it.opts.strictKeywords ? typeof $sch2 == "object" && Object.keys($sch2).length > 0 || $sch2 === false : it.util.schemaHasRules($sch2, it.RULES.all);
       });
       if ($noEmptySchema) {
         var $currentBaseId = $it.baseId;
@@ -3860,7 +3823,6 @@ var require_anyOf = __commonJS({
         if (it.opts.allErrors) {
           out += " } ";
         }
-        out = it.util.cleanUpCode(out);
       } else {
         if ($breakOnError) {
           out += " if (true) { ";
@@ -3970,7 +3932,7 @@ var require_contains = __commonJS({
       var $closingBraces = "";
       $it.level++;
       var $nextValid = "valid" + $it.level;
-      var $idx = "i" + $lvl, $dataNxt = $it.dataLevel = it.dataLevel + 1, $nextData = "data" + $dataNxt, $currentBaseId = it.baseId, $nonEmptySchema = it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all);
+      var $idx = "i" + $lvl, $dataNxt = $it.dataLevel = it.dataLevel + 1, $nextData = "data" + $dataNxt, $currentBaseId = it.baseId, $nonEmptySchema = it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 || $schema === false : it.util.schemaHasRules($schema, it.RULES.all);
       out += "var " + $errs + " = errors;var " + $valid + ";";
       if ($nonEmptySchema) {
         var $wasComposite = it.compositeRule;
@@ -4028,7 +3990,6 @@ var require_contains = __commonJS({
       if (it.opts.allErrors) {
         out += " } ";
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -4054,6 +4015,7 @@ var require_dependencies = __commonJS({
       var $nextValid = "valid" + $it.level;
       var $schemaDeps = {}, $propertyDeps = {}, $ownProperties = it.opts.ownProperties;
       for ($property in $schema) {
+        if ($property == "__proto__") continue;
         var $sch = $schema[$property];
         var $deps = Array.isArray($sch) ? $propertyDeps : $schemaDeps;
         $deps[$property] = $sch;
@@ -4172,7 +4134,7 @@ var require_dependencies = __commonJS({
       var $currentBaseId = $it.baseId;
       for (var $property in $schemaDeps) {
         var $sch = $schemaDeps[$property];
-        if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+        if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
           out += " " + $nextValid + " = true; if ( " + $data + it.util.getProperty($property) + " !== undefined ";
           if ($ownProperties) {
             out += " && Object.prototype.hasOwnProperty.call(" + $data + ", '" + it.util.escapeQuotes($property) + "') ";
@@ -4193,7 +4155,6 @@ var require_dependencies = __commonJS({
       if ($breakOnError) {
         out += "   " + $closingBraces + " if (" + $errs + " == errors) {";
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -4437,7 +4398,7 @@ var require_if = __commonJS({
       var $it = it.util.copy(it);
       $it.level++;
       var $nextValid = "valid" + $it.level;
-      var $thenSch = it.schema["then"], $elseSch = it.schema["else"], $thenPresent = $thenSch !== void 0 && (it.opts.strictKeywords ? typeof $thenSch == "object" && Object.keys($thenSch).length > 0 : it.util.schemaHasRules($thenSch, it.RULES.all)), $elsePresent = $elseSch !== void 0 && (it.opts.strictKeywords ? typeof $elseSch == "object" && Object.keys($elseSch).length > 0 : it.util.schemaHasRules($elseSch, it.RULES.all)), $currentBaseId = $it.baseId;
+      var $thenSch = it.schema["then"], $elseSch = it.schema["else"], $thenPresent = $thenSch !== void 0 && (it.opts.strictKeywords ? typeof $thenSch == "object" && Object.keys($thenSch).length > 0 || $thenSch === false : it.util.schemaHasRules($thenSch, it.RULES.all)), $elsePresent = $elseSch !== void 0 && (it.opts.strictKeywords ? typeof $elseSch == "object" && Object.keys($elseSch).length > 0 || $elseSch === false : it.util.schemaHasRules($elseSch, it.RULES.all)), $currentBaseId = $it.baseId;
       if ($thenPresent || $elsePresent) {
         var $ifClause;
         $it.createErrors = false;
@@ -4513,7 +4474,6 @@ var require_if = __commonJS({
         if ($breakOnError) {
           out += " else { ";
         }
-        out = it.util.cleanUpCode(out);
       } else {
         if ($breakOnError) {
           out += " if (true) { ";
@@ -4590,7 +4550,7 @@ var require_items = __commonJS({
           var $sch, $i = -1, l1 = arr1.length - 1;
           while ($i < l1) {
             $sch = arr1[$i += 1];
-            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
               out += " " + $nextValid + " = true; if (" + $data + ".length > " + $i + ") { ";
               var $passData = $data + "[" + $i + "]";
               $it.schema = $sch;
@@ -4613,7 +4573,7 @@ var require_items = __commonJS({
             }
           }
         }
-        if (typeof $additionalItems == "object" && (it.opts.strictKeywords ? typeof $additionalItems == "object" && Object.keys($additionalItems).length > 0 : it.util.schemaHasRules($additionalItems, it.RULES.all))) {
+        if (typeof $additionalItems == "object" && (it.opts.strictKeywords ? typeof $additionalItems == "object" && Object.keys($additionalItems).length > 0 || $additionalItems === false : it.util.schemaHasRules($additionalItems, it.RULES.all))) {
           $it.schema = $additionalItems;
           $it.schemaPath = it.schemaPath + ".additionalItems";
           $it.errSchemaPath = it.errSchemaPath + "/additionalItems";
@@ -4637,7 +4597,7 @@ var require_items = __commonJS({
             $closingBraces += "}";
           }
         }
-      } else if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all)) {
+      } else if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 || $schema === false : it.util.schemaHasRules($schema, it.RULES.all)) {
         $it.schema = $schema;
         $it.schemaPath = $schemaPath;
         $it.errSchemaPath = $errSchemaPath;
@@ -4660,7 +4620,6 @@ var require_items = __commonJS({
       if ($breakOnError) {
         out += " " + $closingBraces + " if (" + $errs + " == errors) {";
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -4688,6 +4647,12 @@ var require_limit = __commonJS({
         $schemaValue = $schema;
       }
       var $isMax = $keyword == "maximum", $exclusiveKeyword = $isMax ? "exclusiveMaximum" : "exclusiveMinimum", $schemaExcl = it.schema[$exclusiveKeyword], $isDataExcl = it.opts.$data && $schemaExcl && $schemaExcl.$data, $op = $isMax ? "<" : ">", $notOp = $isMax ? ">" : "<", $errorKeyword = void 0;
+      if (!($isData || typeof $schema == "number" || $schema === void 0)) {
+        throw new Error($keyword + " must be number");
+      }
+      if (!($isDataExcl || $schemaExcl === void 0 || typeof $schemaExcl == "number" || typeof $schemaExcl == "boolean")) {
+        throw new Error($exclusiveKeyword + " must be number or boolean");
+      }
       if ($isDataExcl) {
         var $schemaValueExcl = it.util.getData($schemaExcl.$data, $dataLvl, it.dataPathArr), $exclusive = "exclusive" + $lvl, $exclType = "exclType" + $lvl, $exclIsNumber = "exclIsNumber" + $lvl, $opExpr = "op" + $lvl, $opStr = "' + " + $opExpr + " + '";
         out += " var schemaExcl" + $lvl + " = " + $schemaValueExcl + "; ";
@@ -4835,6 +4800,9 @@ var require_limitItems = __commonJS({
       } else {
         $schemaValue = $schema;
       }
+      if (!($isData || typeof $schema == "number")) {
+        throw new Error($keyword + " must be number");
+      }
       var $op = $keyword == "maxItems" ? ">" : "<";
       out += "if ( ";
       if ($isData) {
@@ -4915,6 +4883,9 @@ var require_limitLength = __commonJS({
         $schemaValue = "schema" + $lvl;
       } else {
         $schemaValue = $schema;
+      }
+      if (!($isData || typeof $schema == "number")) {
+        throw new Error($keyword + " must be number");
       }
       var $op = $keyword == "maxLength" ? ">" : "<";
       out += "if ( ";
@@ -5002,6 +4973,9 @@ var require_limitProperties = __commonJS({
       } else {
         $schemaValue = $schema;
       }
+      if (!($isData || typeof $schema == "number")) {
+        throw new Error($keyword + " must be number");
+      }
       var $op = $keyword == "maxProperties" ? ">" : "<";
       out += "if ( ";
       if ($isData) {
@@ -5082,6 +5056,9 @@ var require_multipleOf = __commonJS({
       } else {
         $schemaValue = $schema;
       }
+      if (!($isData || typeof $schema == "number")) {
+        throw new Error($keyword + " must be number");
+      }
       out += "var division" + $lvl + ";if (";
       if ($isData) {
         out += " " + $schemaValue + " !== undefined && ( typeof " + $schemaValue + " != 'number' || ";
@@ -5160,7 +5137,7 @@ var require_not = __commonJS({
       var $it = it.util.copy(it);
       $it.level++;
       var $nextValid = "valid" + $it.level;
-      if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all)) {
+      if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 || $schema === false : it.util.schemaHasRules($schema, it.RULES.all)) {
         $it.schema = $schema;
         $it.schemaPath = $schemaPath;
         $it.errSchemaPath = $errSchemaPath;
@@ -5260,7 +5237,7 @@ var require_oneOf = __commonJS({
         var $sch, $i = -1, l1 = arr1.length - 1;
         while ($i < l1) {
           $sch = arr1[$i += 1];
-          if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+          if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
             $it.schema = $sch;
             $it.schemaPath = $schemaPath + "[" + $i + "]";
             $it.errSchemaPath = $errSchemaPath + "/" + $i;
@@ -5405,9 +5382,14 @@ var require_properties = __commonJS({
       $it.level++;
       var $nextValid = "valid" + $it.level;
       var $key = "key" + $lvl, $idx = "idx" + $lvl, $dataNxt = $it.dataLevel = it.dataLevel + 1, $nextData = "data" + $dataNxt, $dataProperties = "dataProperties" + $lvl;
-      var $schemaKeys = Object.keys($schema || {}), $pProperties = it.schema.patternProperties || {}, $pPropertyKeys = Object.keys($pProperties), $aProperties = it.schema.additionalProperties, $someProperties = $schemaKeys.length || $pPropertyKeys.length, $noAdditional = $aProperties === false, $additionalIsSchema = typeof $aProperties == "object" && Object.keys($aProperties).length, $removeAdditional = it.opts.removeAdditional, $checkAdditional = $noAdditional || $additionalIsSchema || $removeAdditional, $ownProperties = it.opts.ownProperties, $currentBaseId = it.baseId;
+      var $schemaKeys = Object.keys($schema || {}).filter(notProto), $pProperties = it.schema.patternProperties || {}, $pPropertyKeys = Object.keys($pProperties).filter(notProto), $aProperties = it.schema.additionalProperties, $someProperties = $schemaKeys.length || $pPropertyKeys.length, $noAdditional = $aProperties === false, $additionalIsSchema = typeof $aProperties == "object" && Object.keys($aProperties).length, $removeAdditional = it.opts.removeAdditional, $checkAdditional = $noAdditional || $additionalIsSchema || $removeAdditional, $ownProperties = it.opts.ownProperties, $currentBaseId = it.baseId;
       var $required = it.schema.required;
-      if ($required && !(it.opts.$data && $required.$data) && $required.length < it.opts.loopRequired) var $requiredHash = it.util.toHash($required);
+      if ($required && !(it.opts.$data && $required.$data) && $required.length < it.opts.loopRequired) {
+        var $requiredHash = it.util.toHash($required);
+      }
+      function notProto(p6) {
+        return p6 !== "__proto__";
+      }
       out += "var " + $errs + " = errors;var " + $nextValid + " = true;";
       if ($ownProperties) {
         out += " var " + $dataProperties + " = undefined;";
@@ -5556,7 +5538,7 @@ var require_properties = __commonJS({
           while (i32 < l32) {
             $propertyKey = arr3[i32 += 1];
             var $sch = $schema[$propertyKey];
-            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
               var $prop = it.util.getProperty($propertyKey), $passData = $data + $prop, $hasDefault = $useDefaults && $sch.default !== void 0;
               $it.schema = $sch;
               $it.schemaPath = $schemaPath + $prop;
@@ -5653,7 +5635,7 @@ var require_properties = __commonJS({
           while (i42 < l42) {
             $pProperty = arr4[i42 += 1];
             var $sch = $pProperties[$pProperty];
-            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all)) {
+            if (it.opts.strictKeywords ? typeof $sch == "object" && Object.keys($sch).length > 0 || $sch === false : it.util.schemaHasRules($sch, it.RULES.all)) {
               $it.schema = $sch;
               $it.schemaPath = it.schemaPath + ".patternProperties" + it.util.getProperty($pProperty);
               $it.errSchemaPath = it.errSchemaPath + "/patternProperties/" + it.util.escapeFragment($pProperty);
@@ -5692,7 +5674,6 @@ var require_properties = __commonJS({
       if ($breakOnError) {
         out += " " + $closingBraces + " if (" + $errs + " == errors) {";
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -5717,7 +5698,7 @@ var require_propertyNames = __commonJS({
       $it.level++;
       var $nextValid = "valid" + $it.level;
       out += "var " + $errs + " = errors;";
-      if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all)) {
+      if (it.opts.strictKeywords ? typeof $schema == "object" && Object.keys($schema).length > 0 || $schema === false : it.util.schemaHasRules($schema, it.RULES.all)) {
         $it.schema = $schema;
         $it.schemaPath = $schemaPath;
         $it.errSchemaPath = $errSchemaPath;
@@ -5771,7 +5752,6 @@ var require_propertyNames = __commonJS({
       if ($breakOnError) {
         out += " " + $closingBraces + " if (" + $errs + " == errors) {";
       }
-      out = it.util.cleanUpCode(out);
       return out;
     };
   }
@@ -5808,7 +5788,7 @@ var require_required = __commonJS({
             while (i1 < l1) {
               $property = arr1[i1 += 1];
               var $propertySch = it.schema.properties[$property];
-              if (!($propertySch && (it.opts.strictKeywords ? typeof $propertySch == "object" && Object.keys($propertySch).length > 0 : it.util.schemaHasRules($propertySch, it.RULES.all)))) {
+              if (!($propertySch && (it.opts.strictKeywords ? typeof $propertySch == "object" && Object.keys($propertySch).length > 0 || $propertySch === false : it.util.schemaHasRules($propertySch, it.RULES.all)))) {
                 $required[$required.length] = $property;
               }
             }
@@ -6069,7 +6049,7 @@ var require_uniqueItems = __commonJS({
         } else {
           out += " var itemIndices = {}, item; for (;i--;) { var item = " + $data + "[i]; ";
           var $method = "checkDataType" + ($typeIsArray ? "s" : "");
-          out += " if (" + it.util[$method]($itemType, "item", true) + ") continue; ";
+          out += " if (" + it.util[$method]($itemType, "item", it.opts.strictNumbers, true) + ") continue; ";
           if ($typeIsArray) {
             out += ` if (typeof item == 'string') item = '"' + item; `;
           }
@@ -6297,7 +6277,7 @@ var require_data = __commonJS({
             keywords[key] = {
               anyOf: [
                 schema2,
-                { $ref: "https://raw.githubusercontent.com/epoberezkin/ajv/master/lib/refs/data.json#" }
+                { $ref: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" }
               ]
             };
           }
@@ -6779,7 +6759,7 @@ var require_definition_schema = __commonJS({
     "use strict";
     var metaSchema = require_json_schema_draft_07();
     module2.exports = {
-      $id: "https://github.com/epoberezkin/ajv/blob/master/lib/definition_schema.js",
+      $id: "https://github.com/ajv-validator/ajv/blob/master/lib/definition_schema.js",
       definitions: {
         simpleTypes: metaSchema.definitions.simpleTypes
       },
@@ -6848,7 +6828,7 @@ var require_keyword = __commonJS({
             metaSchema = {
               anyOf: [
                 metaSchema,
-                { "$ref": "https://raw.githubusercontent.com/epoberezkin/ajv/master/lib/refs/data.json#" }
+                { "$ref": "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#" }
               ]
             };
           }
@@ -6919,7 +6899,7 @@ var require_data2 = __commonJS({
   "node_modules/ajv/lib/refs/data.json"(exports2, module2) {
     module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
-      $id: "https://raw.githubusercontent.com/epoberezkin/ajv/master/lib/refs/data.json#",
+      $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON Schema extension proposal)",
       type: "object",
       required: ["$data"],
