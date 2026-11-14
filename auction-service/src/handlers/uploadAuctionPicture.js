@@ -4,13 +4,16 @@ import validator from '@middy/validator';
 import cors from '@middy/http-cors';
 import createError from 'http-errors';
 import { getAuctionById } from './getAuction';
+import { getUserEmail } from '../lib/getUserEmail';
 import { uploadPictureToS3 } from '../lib/uploadPictureToS3';
 import { setAuctionPictureUrl } from '../lib/setAuctionPictureUrl';
 import uploadAuctionPictureSchema from '../lib/schemas/uploadAuctionPictureSchema';
 
+const MAX_BYTES = 4 * 1024 * 1024; // Lambda's request limit is 6 MB, base64 adds ~33%
+
 export async function uploadAuctionPicture(event) {
   const { id } = event.pathParameters;
-  const { email } = event.requestContext.authorizer || { email: 'seller@example.com' };
+  const email = getUserEmail(event, 'seller@example.com');
   const auction = await getAuctionById(id);
 
   // Validate auction ownership
@@ -18,8 +21,16 @@ export async function uploadAuctionPicture(event) {
     throw new createError.Forbidden(`You are not the seller of this auction!`);
   }
 
-  const base64 = event.body.replace(/^data:image\/\w+;base64,/, '');
+  const base64 = event.body.trim().replace(/^data:image\/[\w+.-]+;base64,/, '');
   const buffer = Buffer.from(base64, 'base64');
+
+  // Only real JPEGs (they start with FF D8 FF), and not too big.
+  if (buffer.length < 3 || buffer[0] !== 0xff || buffer[1] !== 0xd8 || buffer[2] !== 0xff) {
+    throw new createError.BadRequest('The picture must be a base64-encoded JPEG');
+  }
+  if (buffer.length > MAX_BYTES) {
+    throw new createError.PayloadTooLarge('The picture must be 4 MB or smaller');
+  }
 
   let updatedAuction;
 
@@ -28,7 +39,7 @@ export async function uploadAuctionPicture(event) {
     updatedAuction = await setAuctionPictureUrl(auction.id, pictureUrl);
   } catch (error) {
     console.error(error);
-    throw new createError.InternalServerError(error);
+    throw new createError.InternalServerError('Could not save the picture');
   }
 
   return {

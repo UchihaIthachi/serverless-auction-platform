@@ -1,36 +1,32 @@
-import { ses } from '../../../shared/aws';
+import { ses, SendEmailCommand } from '../../../shared/aws';
 
-async function sendMail(event, context) {
-  const record = event.Records[0];
-  console.log('record processing', record);
+// Sends one email per SQS message. Failed messages are reported back to SQS
+// so they are retried, and after 3 tries they move to the dead-letter queue.
+export async function sendMail(event) {
+  const batchItemFailures = [];
 
-  const email = JSON.parse(record.body);
-  const { subject, body, recipient } = email;
+  for (const record of event.Records) {
+    try {
+      const { subject, body, recipient } = JSON.parse(record.body);
+      if (!recipient || !subject || !body) {
+        throw new Error('Mail message needs recipient, subject and body');
+      }
 
-  const params = {
-    Source: 'ariel@codingly.io',
-    Destination: {
-      ToAddresses: [recipient],
-    },
-    Message: {
-      Body: {
-        Text: {
-          Data: body,
+      await ses.send(new SendEmailCommand({
+        Source: process.env.SENDER_EMAIL,
+        Destination: { ToAddresses: [recipient] },
+        Message: {
+          Subject: { Data: subject },
+          Body: { Text: { Data: body } },
         },
-      },
-      Subject: {
-        Data: subject,
-      },
-    },
-  };
-
-  try {
-    const result = await ses.send(new SendEmailCommand(params));
-    console.log(result);
-    return result;
-  } catch (error) {
-    console.error(error);
+      }));
+    } catch (error) {
+      console.error('sendMail failed', { messageId: record.messageId, error: error.message });
+      batchItemFailures.push({ itemIdentifier: record.messageId });
+    }
   }
+
+  return { batchItemFailures };
 }
 
 export const handler = sendMail;

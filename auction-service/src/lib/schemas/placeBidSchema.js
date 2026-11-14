@@ -5,6 +5,8 @@ const schema = {
       properties: {
         amount: {
           type: 'number',
+          exclusiveMinimum: 0,
+          maximum: 1000000000,
         },
       },
       required: ['amount'],

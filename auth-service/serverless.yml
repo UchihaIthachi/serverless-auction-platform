@@ -12,12 +12,14 @@ provider:
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
   environment:
-    AWS_REGION: ${self:provider.region}
-    # When running locally:
-    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
-    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
-    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
+    # Lambda sets AWS_REGION and the role credentials itself (reserved names).
+    STAGE: ${self:provider.stage}
+    LOCAL_AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
     AUTH0_PUBLIC_KEY: ${file(secret.pem)}
+    # Your Auth0 API identifier and tenant URL, e.g.
+    #   AUTH0_AUDIENCE=https://auction-api  AUTH0_ISSUER=https://<tenant>.auth0.com/
+    AUTH0_AUDIENCE: ${env:AUTH0_AUDIENCE, ''}
+    AUTH0_ISSUER: ${env:AUTH0_ISSUER, ''}
 
 functions:
   auth:

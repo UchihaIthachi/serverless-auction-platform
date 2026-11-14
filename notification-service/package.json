@@ -1,8 +1,8 @@
 {
   "name": "notification-service",
   "version": "1.0.0",
-  "description": "Codingly template for Serverless Framework projects",
-  "author": "Ariel Weinberger <ariel@codingly.io>",
+  "description": "Notification service: sends auction emails from the SQS mail queue via SES",
+  "author": "Harshana Lakshara Fernando",
   "license": "MIT",
   "scripts": {
     "start:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless offline --stage local --host 0.0.0.0",

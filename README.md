@@ -77,7 +77,6 @@ Each microservice is independently deployable and communicates via AWS-managed m
   - SES (Simple Email Service)
   - CloudWatch (Monitoring)
 - **Authentication**: JWT + Lambda Authorizer
-- **CI/CD**: GitHub Actions _(planned)_
 - **Local Development**: LocalStack, Serverless Offline, Docker
 
 ---
@@ -89,7 +88,7 @@ serverless-auction-platform/
 │
 ├── auction-service/        # Handles listing, bidding, and auction state transitions
 ├── auth-service/           # Manages user authentication and authorization via JWT
-├── notification-service/   # Sends email notifications via SES/SNS
+├── notification-service/   # Sends email notifications via SQS + SES
 ├── scripts/                # Helper scripts for local dev and testing
 ├── docker-compose.yml      # LocalStack configuration
 └── README.md               # Project documentation
@@ -101,22 +100,21 @@ serverless-auction-platform/
 
 ### ✅ Auction Service
 
-- Create, update, and delete auctions
-- Start and end auctions with scheduled events
-- Accept bids with validation and conflict handling
-- Trigger notifications and events for auction outcomes
+- Create auctions (default end time: one hour), list them by status, and get one by ID
+- Place bids, with the rules checked by DynamoDB at write time so two bids at the same moment can't overwrite each other
+- Upload an auction picture to S3 (seller only)
+- A scheduled function closes ended auctions every minute and queues the result emails
 
 ### 🔐 Auth Service
 
-- User sign-up and login with email verification
-- JWT token generation and validation
-- Lambda Authorizer integration for securing API endpoints
+- Lambda authorizer that verifies Auth0 JWTs (RS256, audience and issuer checked)
+- Passes the user's email to the other services' API calls
 
 ### 📢 Notification Service
 
-- Send notifications for auction events
-- Inform winning bidders and auction owners
-- Uses AWS SES and SNS for delivery
+- Reads email requests from an SQS queue and sends them with SES
+- Tells the seller the result and the winning bidder that they won
+- Failed emails are retried, then kept in a dead-letter queue
 
 ---
 
@@ -270,28 +268,42 @@ _(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RP
 
 ## 🏗️ Deployment (AWS)
 
-**Important**: Before deploying, ensure you have configured valid AWS credentials. You may need to unset the dummy credentials used for LocalStack:
+**Important**: Before deploying, make sure you are using real AWS credentials, not the LocalStack `test` ones:
 
 ```bash
 # Verify identity (should NOT be 'test')
 aws sts get-caller-identity
 ```
 
-To deploy to real AWS environment:
+The services depend on each other, so deploy them in this order:
+
+1. **notification-service** creates the mail queue; auction-service reads its URL and ARN from this stack.
+2. **auth-service** creates the authorizer function that auction-service's API uses.
+3. **auction-service**.
 
 ```bash
-# Deploy Auction Service
-cd auction-service
-sls deploy --stage dev
+# 1. Notification service. SENDER_EMAIL must be a verified SES identity
+#    (in the SES sandbox, recipients must be verified too).
+cd notification-service
+SENDER_EMAIL=you@example.com sls deploy --stage dev
 
-# Deploy Auth Service
+# 2. Auth service. Put your Auth0 tenant's signing certificate in
+#    auth-service/secret.pem (it is git-ignored), then:
 cd ../auth-service
-sls deploy --stage dev
+AUTH0_AUDIENCE=https://your-api-identifier AUTH0_ISSUER=https://your-tenant.auth0.com/ \
+  sls deploy --stage dev
 
-# Deploy Notification Service
-cd ../notification-service
+# 3. Auction service
+cd ../auction-service
 sls deploy --stage dev
 ```
+
+Notes:
+
+- Lambda provides the region and the function's role credentials itself. The services only use the LocalStack endpoint and the dummy `test` credentials when `LOCAL_AWS_ENDPOINT` is set (the `local` stage).
+- Auth0 access tokens must include an `email` claim, which the auction service uses as the seller / bidder identity.
+- Emails that fail 3 times move to the `MailQueue-<stage>-dlq` dead-letter queue.
+- Auction pictures must be base64-encoded JPEGs of 4 MB or less.
 
 ---
 

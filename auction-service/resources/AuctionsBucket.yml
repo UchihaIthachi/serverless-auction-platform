@@ -2,11 +2,24 @@ AuctionsBucket:
   Type: AWS::S3::Bucket
   Properties:
     BucketName: ${self:custom.AuctionsBucket.name}
+    OwnershipControls:
+      Rules:
+        - ObjectOwnership: BucketOwnerEnforced
+    # New buckets block public access by default, which would reject the
+    # public-read policy below. Only public *policies* are allowed here; ACLs
+    # stay blocked. (For production, CloudFront with origin access control
+    # would let this stay fully private.)
+    PublicAccessBlockConfiguration:
+      BlockPublicAcls: true
+      IgnorePublicAcls: true
+      BlockPublicPolicy: false
+      RestrictPublicBuckets: false
     LifecycleConfiguration:
       Rules:
-        - Id: ExpirePictures
+        - Id: AbortIncompleteUploads
           Status: Enabled
-          ExpirationInDays: 1
+          AbortIncompleteMultipartUpload:
+            DaysAfterInitiation: 1
 
 AuctionsBucketPolicy:
   Type: AWS::S3::BucketPolicy

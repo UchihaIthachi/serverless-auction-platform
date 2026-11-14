@@ -13,11 +13,10 @@ provider:
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'us-east-1'}
   environment:
-    AWS_REGION: ${self:provider.region}
-    # When running locally:
-    AWS_ENDPOINT: ${self:custom.config.awsEndpoint}
-    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
-    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
+    # Lambda sets AWS_REGION and the role credentials itself (they are reserved
+    # names). Only local runs point the SDK at LocalStack.
+    STAGE: ${self:provider.stage}
+    LOCAL_AWS_ENDPOINT: ${self:custom.config.awsEndpoint}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
     MAIL_QUEUE_URL: ${self:custom.config.mailQueueUrl}
     AUCTIONS_BUCKET_NAME: ${self:custom.config.auctionsBucketName}
@@ -31,6 +30,17 @@ resources:
     AuctionsTable: ${file(resources/AuctionsTable.yml):AuctionsTable}
     AuctionsBucket: ${file(resources/AuctionsBucket.yml):AuctionsBucket}
     AuctionsBucketPolicy: ${file(resources/AuctionsBucket.yml):AuctionsBucketPolicy}
+    # The custom authorizer lives in auth-service; return CORS headers on its
+    # 401/403 responses too, so browsers can read the error.
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
     
 functions:
   createAuction:
@@ -80,6 +90,7 @@ functions:
 
   processAuctions:
     handler: src/handlers/processAuctions.handler
+    timeout: 50
     events:
       - schedule: rate(1 minute)
 
