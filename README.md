@@ -153,6 +153,22 @@ aws configure set region us-east-1
 
 ---
 
+## ✅ End-to-end test on your laptop ($0)
+
+`npm run test:e2e` (`scripts/e2e-local.sh`) starts LocalStack (DynamoDB, SQS, S3, SES) and the auction API on serverless-offline. It then checks the whole flow, with no AWS account needed:
+
+| Area | Checks |
+|---|---|
+| Validation | empty title, end date in the past and a bid of 0 → 400; unknown auction → 404 |
+| CRUD | create 201, get and list 200, bid 200 |
+| **Concurrency** | 10 identical bids race; **exactly one wins** (the conditional write on `highestBid.amount`), and the stored amount is correct |
+| Closing | an auction ending in 4 s is closed by `processAuctions`; a second run closes nothing twice |
+| Messaging | exactly 2 emails queued in SQS (seller and winner) |
+| Email | `sendMail` sends both through SES with no batch failures; LocalStack's SES endpoint shows both |
+| Failure path | a message without a recipient comes back as a batch item failure, so SQS retries it and then moves it to the DLQ |
+
+Last run: **16 passed, 0 failed**. Requires Docker, Node, Python 3 and the AWS CLI. LocalStack is pinned to the community image `3.5`, which needs no account.
+
 ## ⚙️ Usage (Local Development & Testing)
 
 > **Tip**: On Windows, use **PowerShell** for `npm` commands and **Git Bash** for `bash` scripts / `curl` examples.

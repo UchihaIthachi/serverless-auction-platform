@@ -68,11 +68,12 @@ else
 fi
 
 # SES Identity
+# Always (re)verify: it is idempotent, and LocalStack can answer "Success" for an identity
+# that it no longer has after a restart, which made SendEmail fail with "not verified".
 echo "[Bootstrap] Verifying SES email identity: test@example.com..."
-if ! aws --endpoint-url="$ENDPOINT" ses get-identity-verification-attributes --identities "test@example.com" | grep -q "Success"; then
-  aws --endpoint-url="$ENDPOINT" ses verify-email-identity --email-address test@example.com > /dev/null
-else
-  echo "[Bootstrap] SES email identity test@example.com already verified."
-fi
+aws --endpoint-url="$ENDPOINT" ses verify-email-identity --email-address test@example.com > /dev/null
+aws --endpoint-url="$ENDPOINT" ses list-identities --query 'Identities' --output text | grep -q 'test@example.com' \
+  && echo "[Bootstrap] SES identity test@example.com verified." \
+  || { echo "[Bootstrap] SES identity test@example.com missing after verify"; exit 1; }
 
 echo "[Bootstrap] Done."
