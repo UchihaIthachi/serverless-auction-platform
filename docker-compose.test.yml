@@ -28,4 +28,4 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: -lc "/app/scripts/test-local.sh && /app/scripts/test-e2e.sh"
+    command: -lc "/app/scripts/test-e2e.sh && /app/scripts/test-local.sh"
