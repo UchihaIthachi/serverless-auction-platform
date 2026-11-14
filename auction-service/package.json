@@ -1,8 +1,8 @@
 {
   "name": "auction-service",
   "version": "1.0.0",
-  "description": "Codingly template for Serverless Framework projects",
-  "author": "Ariel Weinberger <ariel@codingly.io>",
+  "description": "Auction service: create auctions, place bids, close ended auctions",
+  "author": "Harshana Lakshara Fernando",
   "license": "MIT",
   "scripts": {
     "start:local": "cross-env NODE_OPTIONS=--openssl-legacy-provider serverless offline --stage local --host 0.0.0.0",

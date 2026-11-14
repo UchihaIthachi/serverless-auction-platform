@@ -8,22 +8,24 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   memorySize: 256
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
   iamRoleStatements:
     - ${file(iam/SendMailIAM.yml):SendMailIAM}
   environment:
-    AWS_REGION: ${self:provider.region}
-    # When running locally:
-    AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
-    AWS_ACCESS_KEY_ID: ${env:AWS_ACCESS_KEY_ID, 'test'}
-    AWS_SECRET_ACCESS_KEY: ${env:AWS_SECRET_ACCESS_KEY, 'test'}
+    # Lambda sets AWS_REGION and the role credentials itself (reserved names).
+    STAGE: ${self:provider.stage}
+    LOCAL_AWS_ENDPOINT: ${self:custom.awsEndpoint.${self:provider.stage}, ''}
+    # Must be a verified SES identity in your account (test@example.com is
+    # verified by scripts/localstack-bootstrap.sh for local runs).
+    SENDER_EMAIL: ${env:SENDER_EMAIL, 'test@example.com'}
 
 resources:
   Resources:
     MailQueue: ${file(resources/MailQueue.yml):MailQueue}
+    MailDeadLetterQueue: ${file(resources/MailQueue.yml):MailDeadLetterQueue}
   Outputs:
     MailQueueArn: ${file(resources/MailQueue.yml):Outputs.MailQueueArn}
     MailQueueUrl: ${file(resources/MailQueue.yml):Outputs.MailQueueUrl}
@@ -35,6 +37,7 @@ functions:
       - sqs:
           arn: ${self:custom.mailQueue.arn}
           batchSize: 1
+          functionResponseType: ReportBatchItemFailures
 
 custom:
   awsEndpoint:
@@ -53,7 +56,7 @@ custom:
     bundle: true
     minify: false
     sourcemap: true
-    target: "node20"
+    target: "node22"
     platform: "node"
     external:
       - aws-sdk

@@ -1,7 +1,24 @@
 # Node dependencies
 node_modules
 
-# Lockfiles
-
 # Log files
 *.log
+
+# Build output
+.esbuild/
+.serverless/
+.webpack/
+
+# LocalStack data (local state, caches and its test certificates)
+.localstack/
+
+# Secrets and local env
+secret.pem
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+
+# Script output
+response.json

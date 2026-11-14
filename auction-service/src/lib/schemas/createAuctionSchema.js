@@ -5,9 +5,13 @@ const schema = {
       properties: {
         title: {
           type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "\\S",
         },
         endingAt: {
           type: "string",
+          format: "date-time",
         },
       },
       required: ["title"],

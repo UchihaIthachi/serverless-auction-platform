@@ -77,7 +77,6 @@ Each microservice is independently deployable and communicates via AWS-managed m
   - SES (Simple Email Service)
   - CloudWatch (Monitoring)
 - **Authentication**: JWT + Lambda Authorizer
-- **CI/CD**: GitHub Actions _(planned)_
 - **Local Development**: LocalStack, Serverless Offline, Docker
 
 ---
@@ -89,7 +88,7 @@ serverless-auction-platform/
 │
 ├── auction-service/        # Handles listing, bidding, and auction state transitions
 ├── auth-service/           # Manages user authentication and authorization via JWT
-├── notification-service/   # Sends email notifications via SES/SNS
+├── notification-service/   # Sends email notifications via SQS + SES
 ├── scripts/                # Helper scripts for local dev and testing
 ├── docker-compose.yml      # LocalStack configuration
 └── README.md               # Project documentation
@@ -101,22 +100,21 @@ serverless-auction-platform/
 
 ### ✅ Auction Service
 
-- Create, update, and delete auctions
-- Start and end auctions with scheduled events
-- Accept bids with validation and conflict handling
-- Trigger notifications and events for auction outcomes
+- Create auctions (default end time: one hour), list them by status, and get one by ID
+- Place bids, with the rules checked by DynamoDB at write time so two bids at the same moment can't overwrite each other
+- Upload an auction picture to S3 (seller only)
+- A scheduled function closes ended auctions every minute and queues the result emails
 
 ### 🔐 Auth Service
 
-- User sign-up and login with email verification
-- JWT token generation and validation
-- Lambda Authorizer integration for securing API endpoints
+- Lambda authorizer that verifies Auth0 JWTs (RS256, audience and issuer checked)
+- Passes the user's email to the other services' API calls
 
 ### 📢 Notification Service
 
-- Send notifications for auction events
-- Inform winning bidders and auction owners
-- Uses AWS SES and SNS for delivery
+- Reads email requests from an SQS queue and sends them with SES
+- Tells the seller the result and the winning bidder that they won
+- Failed emails are retried, then kept in a dead-letter queue
 
 ---
 
@@ -270,28 +268,51 @@ _(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RP
 
 ## 🏗️ Deployment (AWS)
 
-**Important**: Before deploying, ensure you have configured valid AWS credentials. You may need to unset the dummy credentials used for LocalStack:
+Three scripts handle a real deployment. You run them yourself with your own AWS profile; no access keys are stored in the repo or the scripts.
+
+### One-time setup
+
+1. **AWS account safety.** Turn on MFA for the root user and never use it day to day. Create an IAM Identity Center user, then `aws configure sso` with a profile, for example `auction`.
+2. **A cost guard before anything else.** Create a $5 monthly budget with email alerts. `deploy-aws.sh` refuses to run without one:
+   ```bash
+   ACC=$(aws sts get-caller-identity --query Account --output text)
+   aws budgets create-budget --account-id "$ACC" \
+     --budget '{"BudgetName":"monthly-5usd","BudgetLimit":{"Amount":"5","Unit":"USD"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
+     --notifications-with-subscribers '[
+       {"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"you@example.com"}]},
+       {"Notification":{"NotificationType":"FORECASTED","ComparisonOperator":"GREATER_THAN","Threshold":100,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"you@example.com"}]}]'
+   ```
+3. **Auth0** (free tenant):
+   - Create an **API**. Its identifier becomes `AUTH0_AUDIENCE`, and the issuer is `https://<tenant>.auth0.com/`.
+   - Download the tenant's signing certificate: Applications → your app → Settings → Advanced → Certificates. Save it as `auth-service/secret.pem` (git-ignored).
+   - Add a post-login **Action** so access tokens carry the user's email. Auth0 drops a plain `email` claim in some flows, so it is namespaced:
+     ```js
+     exports.onExecutePostLogin = async (event, api) => {
+       api.accessToken.setCustomClaim('https://serverless-auction/email', event.user.email);
+     };
+     ```
+4. **SES** (sandbox): verify the sender, and every recipient while in the sandbox:
+   `aws sesv2 create-email-identity --email-identity you@example.com`, then click the link in the email.
+
+### Deploy, test, remove
 
 ```bash
-# Verify identity (should NOT be 'test')
-aws sts get-caller-identity
+export AWS_PROFILE=auction AUTH0_AUDIENCE=https://auction-api AUTH0_ISSUER=https://<tenant>.auth0.com/ SENDER_EMAIL=you@example.com
+bash scripts/deploy-aws.sh                 # checks identity, budget, Auth0 inputs, SES; deploys auth -> notification -> auction
+TOKEN=<access token> bash scripts/smoke-aws.sh   # 401 without/with a bad token, create 201, get/list 200, seller's own bid 403
+bash scripts/teardown-aws.sh               # empties the bucket and removes all three stacks
 ```
 
-To deploy to real AWS environment:
+To get an access token for the smoke test, sign in through your Auth0 application (or use the API's Test tab for a machine token). A second user's token (`TOKEN2`) adds a real bid and a rejected lower bid.
 
-```bash
-# Deploy Auction Service
-cd auction-service
-sls deploy --stage dev
+Notes:
 
-# Deploy Auth Service
-cd ../auth-service
-sls deploy --stage dev
-
-# Deploy Notification Service
-cd ../notification-service
-sls deploy --stage dev
-```
+- The deploy order matters. auth-service provides the authorizer, notification-service provides the mail queue, and auction-service reads both through CloudFormation outputs.
+- The bucket name includes the account ID (`auctions-<account>-<stage>`), so it is globally unique.
+- Lambda supplies the region and role credentials. The LocalStack endpoint and `test` credentials are only used when `LOCAL_AWS_ENDPOINT` is set (the `local` stage).
+- Emails that fail 3 times move to `MailQueue-<stage>-dlq`.
+- Runtime: `nodejs22.x`. Lambda deprecated `nodejs20.x` on 30 Apr 2026. Serverless Framework v3 predates Node 22 and prints a runtime warning, which is harmless.
+- Pictures must be base64-encoded JPEGs of 4 MB or less.
 
 ---
 

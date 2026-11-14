@@ -6,9 +6,9 @@ export async function uploadPictureToS3(key, body) {
     params: {
       Bucket: process.env.AUCTIONS_BUCKET_NAME,
       Key: key,
-      Body: body,
-      ContentEncoding: 'base64',
+      Body: body, // already decoded bytes, so no Content-Encoding header
       ContentType: 'image/jpeg',
+      CacheControl: 'public, max-age=300',
     },
   });
 

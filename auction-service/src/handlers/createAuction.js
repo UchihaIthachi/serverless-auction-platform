@@ -1,29 +1,32 @@
-import { v4 as uuid } from "uuid";
+import { randomUUID } from "crypto";
 import createError from "http-errors";
 import validator from "@middy/validator";
 import { ddb } from "../../../shared/aws";
 import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import commonMiddleware from "../lib/commonMiddleware";
+import { getUserEmail } from "../lib/getUserEmail";
 import createAuctionSchema from "../lib/schemas/createAuctionSchema";
 
-async function createAuction(event, context) {
-  const { title, endingAt } = event.body;
-  const { email } = event.requestContext.authorizer || {
-    email: "seller@example.com",
-  };
-  const now = new Date();
-  let endDate;
+const MAX_DAYS = 30;
 
-  if (endingAt) {
-    endDate = new Date(endingAt);
-  } else {
-    endDate = new Date();
-    endDate.setHours(now.getHours() + 1);
+async function createAuction(event) {
+  const { title, endingAt } = event.body;
+  const email = getUserEmail(event, "seller@example.com");
+  const now = new Date();
+
+  // Default: one hour from now. A given end date must be in the future and
+  // at most 30 days away.
+  const endDate = endingAt ? new Date(endingAt) : new Date(now.getTime() + 60 * 60 * 1000);
+  if (Number.isNaN(endDate.getTime()) || endDate <= now) {
+    throw new createError.BadRequest("endingAt must be a date in the future");
+  }
+  if (endDate - now > MAX_DAYS * 24 * 60 * 60 * 1000) {
+    throw new createError.BadRequest(`endingAt must be within ${MAX_DAYS} days`);
   }
 
   const auction = {
-    id: uuid(),
-    title,
+    id: randomUUID(),
+    title: title.trim(),
     status: "OPEN",
     createdAt: now.toISOString(),
     endingAt: endDate.toISOString(),
@@ -38,11 +41,12 @@ async function createAuction(event, context) {
       new PutCommand({
         TableName: process.env.AUCTIONS_TABLE_NAME,
         Item: auction,
+        ConditionExpression: "attribute_not_exists(id)",
       })
     );
   } catch (error) {
     console.error(error);
-    throw new createError.InternalServerError(error);
+    throw new createError.InternalServerError("Could not create the auction");
   }
 
   return {

@@ -2,6 +2,19 @@ MailQueue:
   Type: AWS::SQS::Queue
   Properties:
     QueueName: ${self:custom.mailQueue.name}
+    # Longer than the function timeout, as AWS recommends for SQS triggers.
+    VisibilityTimeout: 60
+    RedrivePolicy:
+      deadLetterTargetArn: !GetAtt MailDeadLetterQueue.Arn
+      maxReceiveCount: 3
+
+# Emails that still fail after 3 tries wait here (kept 14 days) instead of
+# being lost.
+MailDeadLetterQueue:
+  Type: AWS::SQS::Queue
+  Properties:
+    QueueName: ${self:custom.mailQueue.name}-dlq
+    MessageRetentionPeriod: 1209600
 
 Outputs:
   MailQueueArn:
