@@ -1,5 +1,16 @@
+# serverless-offline on your laptop: functions run in Node, AWS calls go to LocalStack (or moto).
 awsEndpoint: http://localhost:4566
+runtime: nodejs22.x
 authorizer: ''
 mailQueueArn: arn:aws:sqs:us-east-1:000000000000:MailQueue-local
 mailQueueUrl: http://localhost:4566/000000000000/MailQueue-local
+alertsTopicArn: arn:aws:sns:us-east-1:000000000000:auction-alerts-local
 auctionsBucketName: auctions-bucket-sj19asxm-local
+# The e2e test turns this on to check the schedule gets created.
+schedulerEnabled: ${env:SCHEDULER_ENABLED, 'false'}
+schedulerRoleArn: arn:aws:iam::000000000000:role/auction-service-local-scheduler
+schedulerTargetArn: arn:aws:lambda:us-east-1:000000000000:function:auction-service-local-closeAuctionById
+sweepRate: rate(1 minute)
+useCdn: 'false'
+picturesBaseUrl: ''
+throttle: { rateLimit: 20, burstLimit: 40, bidRateLimit: 10, bidBurstLimit: 20 }

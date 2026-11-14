@@ -8,3 +8,12 @@ AuctionsTableIAM:
   Resource:
     - ${self:custom.AuctionsTable.arn}
     - !Join ['/', [ '${self:custom.AuctionsTable.arn}', 'index', 'statusAndEndDate' ]]
+
+# closeAuction's transaction puts outbox rows (TransactWriteItems is
+# authorised per item: UpdateItem on AuctionsTable, PutItem here).
+OutboxTableIAM:
+  Effect: Allow
+  Action:
+    - dynamodb:PutItem
+  Resource:
+    - ${self:custom.OutboxTable.arn}

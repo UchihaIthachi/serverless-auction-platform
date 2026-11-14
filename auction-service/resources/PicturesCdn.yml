@@ -1,0 +1,36 @@
+# Pictures are served through CloudFront. The bucket stays fully private:
+# origin access control signs CloudFront's requests to S3, and the bucket
+# policy (AuctionsBucketCdnPolicy) only trusts this one distribution.
+PicturesOriginAccessControl:
+  Type: AWS::CloudFront::OriginAccessControl
+  Condition: UseCdn
+  Properties:
+    OriginAccessControlConfig:
+      Name: ${self:service}-${self:provider.stage}-pictures
+      OriginAccessControlOriginType: s3
+      SigningBehavior: always
+      SigningProtocol: sigv4
+
+PicturesDistribution:
+  Type: AWS::CloudFront::Distribution
+  Condition: UseCdn
+  Properties:
+    DistributionConfig:
+      Enabled: true
+      Comment: ${self:service}-${self:provider.stage} auction pictures
+      HttpVersion: http2and3
+      PriceClass: PriceClass_100      # North America and Europe edges only: cheapest
+      Origins:
+        - Id: pictures
+          DomainName: !GetAtt AuctionsBucket.RegionalDomainName
+          OriginAccessControlId: !GetAtt PicturesOriginAccessControl.Id
+          S3OriginConfig:
+            OriginAccessIdentity: ''  # empty: OAC replaces the legacy OAI
+      DefaultCacheBehavior:
+        TargetOriginId: pictures
+        ViewerProtocolPolicy: redirect-to-https
+        AllowedMethods: [GET, HEAD]
+        CachedMethods: [GET, HEAD]
+        Compress: true
+        # AWS managed policy "CachingOptimized"
+        CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6

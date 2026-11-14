@@ -5,10 +5,11 @@ plugins:
   - serverless-pseudo-parameters
   - serverless-offline
   - serverless-localstack
+  - ./plugins/stage-throttling   # API Gateway stage + per-method throttling after each deploy
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: ${self:custom.config.runtime}
   memorySize: 256
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'us-east-1'}
@@ -18,20 +19,41 @@ provider:
     STAGE: ${self:provider.stage}
     LOCAL_AWS_ENDPOINT: ${self:custom.config.awsEndpoint}
     AUCTIONS_TABLE_NAME: ${self:custom.AuctionsTable.name}
+    OUTBOX_TABLE_NAME: ${self:custom.OutboxTable.name}
     MAIL_QUEUE_URL: ${self:custom.config.mailQueueUrl}
     AUCTIONS_BUCKET_NAME: ${self:custom.config.auctionsBucketName}
+    PICTURES_BASE_URL: ${self:custom.config.picturesBaseUrl}
+    SCHEDULER_ENABLED: ${self:custom.config.schedulerEnabled}
+    SCHEDULER_ROLE_ARN: ${self:custom.config.schedulerRoleArn}
+    SCHEDULER_TARGET_ARN: ${self:custom.config.schedulerTargetArn}
   iamRoleStatements:
     - ${file(iam/AuctionsTableIAM.yml):AuctionsTableIAM}
+    - ${file(iam/AuctionsTableIAM.yml):OutboxTableIAM}
     - ${file(iam/MailQueueIAM.yml):MailQueueIAM}
     - ${file(iam/AuctionsBucketIAM.yml):AuctionsBucketIAM}
+    - ${file(iam/SchedulerIAM.yml):CreateScheduleIAM}
+    - ${file(iam/SchedulerIAM.yml):PassSchedulerRoleIAM}
 
 resources:
+  Conditions:
+    UseCdn: !Equals ['${self:custom.config.useCdn}', 'true']
+    NoCdn: !Not [!Equals ['${self:custom.config.useCdn}', 'true']]
+    UseScheduler: !Equals ['${self:custom.config.schedulerEnabled}', 'true']
   Resources:
     AuctionsTable: ${file(resources/AuctionsTable.yml):AuctionsTable}
+    OutboxTable: ${file(resources/OutboxTable.yml):OutboxTable}
+    OutboxRelayFailures: ${file(resources/OutboxTable.yml):OutboxRelayFailures}
+    OutboxRelayFailuresAlarm: ${file(resources/OutboxTable.yml):OutboxRelayFailuresAlarm}
+    OutboxRelayIteratorAgeAlarm: ${file(resources/OutboxTable.yml):OutboxRelayIteratorAgeAlarm}
     AuctionsBucket: ${file(resources/AuctionsBucket.yml):AuctionsBucket}
-    AuctionsBucketPolicy: ${file(resources/AuctionsBucket.yml):AuctionsBucketPolicy}
+    AuctionsBucketPublicReadPolicy: ${file(resources/AuctionsBucket.yml):AuctionsBucketPublicReadPolicy}
+    AuctionsBucketCdnPolicy: ${file(resources/AuctionsBucket.yml):AuctionsBucketCdnPolicy}
+    PicturesOriginAccessControl: ${file(resources/PicturesCdn.yml):PicturesOriginAccessControl}
+    PicturesDistribution: ${file(resources/PicturesCdn.yml):PicturesDistribution}
+    AuctionSchedulerRole: ${file(resources/Scheduler.yml):AuctionSchedulerRole}
     # The custom authorizer lives in auth-service; return CORS headers on its
-    # 401/403 responses too, so browsers can read the error.
+    # 401/403 responses too, so browsers can read the error. 429s from
+    # throttling are 4XX as well, so browsers see those too.
     GatewayResponseDefault4XX:
       Type: AWS::ApiGateway::GatewayResponse
       Properties:
@@ -41,7 +63,11 @@ resources:
         ResponseType: DEFAULT_4XX
         RestApiId:
           Ref: ApiGatewayRestApi
-    
+  Outputs:
+    PicturesDomain:
+      Condition: UseCdn
+      Value: !GetAtt PicturesDistribution.DomainName
+
 functions:
   createAuction:
     handler: src/handlers/createAuction.handler
@@ -88,31 +114,71 @@ functions:
           cors: true
           authorizer: ${self:custom.config.authorizer}
 
+  # Fired once per auction by EventBridge Scheduler at its endingAt.
+  closeAuctionById:
+    handler: src/handlers/closeAuctionById.handler
+    timeout: 20
+
+  # Safety net: closes anything the per-auction schedule missed.
   processAuctions:
     handler: src/handlers/processAuctions.handler
     timeout: 50
     events:
-      - schedule: rate(1 minute)
+      - schedule: ${self:custom.config.sweepRate}
+
+  # Outbox -> SQS. Driven by the OutboxTable stream.
+  relayOutbox:
+    handler: src/handlers/relayOutbox.handler
+    timeout: 30
+    events:
+      - stream:
+          type: dynamodb
+          arn: !GetAtt OutboxTable.StreamArn
+          startingPosition: TRIM_HORIZON
+          batchSize: 10
+          maximumRetryAttempts: 10
+          bisectBatchOnFunctionError: true
+          functionResponseType: ReportBatchItemFailures
+          filterPatterns:
+            - eventName: [INSERT]
+          destinations:
+            onFailure:          # Serverless also grants sqs:SendMessage on it
+              arn: !GetAtt OutboxRelayFailures.Arn
+              type: sqs
 
 custom:
   serverless-offline:
     noPrependStageInUrl: true
   config: ${file(config/config.${self:provider.stage}.yml)}
   localstack:
-    stages: [local]
+    # Any deploy with these stages goes to LocalStack (localhost:4566), never to AWS.
+    stages: [local, localstack]
     lambda:
-      mountCode: true
+      mountCode: false
   esbuild:
     bundle: true
     minify: false
     sourcemap: true
-    target: "node22"
+    target: "node20"
     platform: "node"
     external:
       - aws-sdk
+  throttling:
+    # Every method on the stage, then a tighter limit on bidding.
+    stage:
+      rateLimit: ${self:custom.config.throttle.rateLimit}
+      burstLimit: ${self:custom.config.throttle.burstLimit}
+    methods:
+      - path: /auction/{id}/bid
+        method: PATCH
+        rateLimit: ${self:custom.config.throttle.bidRateLimit}
+        burstLimit: ${self:custom.config.throttle.bidBurstLimit}
   AuctionsTable:
     name: AuctionsTable-${self:provider.stage}
     arn: !GetAtt AuctionsTable.Arn
+  OutboxTable:
+    name: OutboxTable-${self:provider.stage}
+    arn: !GetAtt OutboxTable.Arn
   MailQueue:
     arn: ${self:custom.config.mailQueueArn}
     url: ${self:custom.config.mailQueueUrl}

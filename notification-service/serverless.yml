@@ -8,7 +8,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs22.x
+  runtime: ${self:custom.runtime.${self:provider.stage}, 'nodejs22.x'}
   memorySize: 256
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
@@ -23,12 +23,19 @@ provider:
     SENDER_EMAIL: ${env:SENDER_EMAIL, 'test@example.com'}
 
 resources:
+  Conditions:
+    HasAlertEmail: !Not [!Equals ["${env:ALERT_EMAIL, ''}", '']]
   Resources:
     MailQueue: ${file(resources/MailQueue.yml):MailQueue}
     MailDeadLetterQueue: ${file(resources/MailQueue.yml):MailDeadLetterQueue}
+    AlertsTopic: ${file(resources/Alerts.yml):AlertsTopic}
+    AlertsEmailSubscription: ${file(resources/Alerts.yml):AlertsEmailSubscription}
+    MailDlqAlarm: ${file(resources/Alerts.yml):MailDlqAlarm}
+    MailQueueAgeAlarm: ${file(resources/Alerts.yml):MailQueueAgeAlarm}
   Outputs:
     MailQueueArn: ${file(resources/MailQueue.yml):Outputs.MailQueueArn}
     MailQueueUrl: ${file(resources/MailQueue.yml):Outputs.MailQueueUrl}
+    AlertsTopicArn: ${file(resources/Alerts.yml):Outputs.AlertsTopicArn}
   
 functions:
   sendMail:
@@ -42,12 +49,16 @@ functions:
 custom:
   awsEndpoint:
     local: http://localhost:4566
+    localstack: http://localhost.localstack.cloud:4566   # from inside LocalStack's Lambda containers
     dev: ''
     prod: ''
+  runtime:
+    localstack: nodejs20.x   # LocalStack 3.5 has no nodejs22.x runtime
   localstack:
-    stages: [local]
+    # Any deploy with these stages goes to LocalStack (localhost:4566), never to AWS.
+    stages: [local, localstack]
     lambda:
-      mountCode: true
+      mountCode: false
   mailQueue:
     name: MailQueue-${self:provider.stage}
     arn: !GetAtt MailQueue.Arn
@@ -56,7 +67,7 @@ custom:
     bundle: true
     minify: false
     sourcemap: true
-    target: "node22"
+    target: "node20"
     platform: "node"
     external:
       - aws-sdk

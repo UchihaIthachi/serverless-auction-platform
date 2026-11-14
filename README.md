@@ -4,12 +4,13 @@
 
 **Highlights**
 - **Concurrency-safe bidding.** The bid check and the write are one conditional DynamoDB update. A 10-way race test proves exactly one bid wins.
-- **Idempotent closing.** A conditional close means overlapping scheduled runs never send duplicate emails.
-- **Reliable email.** SQS with partial batch failures, 3 retries, then a dead-letter queue.
-- **End-to-end tested at $0.** LocalStack + serverless-offline, 16 checks, run in CI on every push and PR.
-- **Costed before deploying:** about $0.90 a month at small scale ([docs/cost.md](docs/cost.md)).
+- **Closes on time, exactly once.** One EventBridge Scheduler entry per auction fires at its end time, and a 15-minute sweep is the safety net. A conditional close means the two never both send emails.
+- **No lost emails.** Transactional outbox: the close and its emails commit in one DynamoDB transaction, and a stream relay puts them on SQS (partial batch failures, retries, then a DLQ).
+- **Protected and observable.** API Gateway throttling per stage and on bidding; private S3 behind CloudFront (origin access control); CloudWatch alarms on the DLQ and relay go to SNS ([runbook](docs/runbook-alarms.md)).
+- **Tested at $0, two ways.** `npm run test:e2e`: 31 checks on LocalStack + serverless-offline, in CI on every push and PR. `deploy-localstack.sh`: the real CloudFormation stacks deployed into LocalStack, with a smoke test through API Gateway.
+- **Deploys without keys:** a GitHub Actions workflow using OIDC ([setup](docs/deploy-oidc.md)). **Costed:** about $0.85 a month at small scale ([cost](docs/cost.md)). **Reviewed:** [Well-Architected, 6 pillars](docs/well-architected.md).
 
-Docs: [architecture and flows](docs/architecture.md) · [cost estimate](docs/cost.md) · deploying to AWS: see "Deployment (AWS)" below
+Docs: [architecture atlas (22 diagrams + tables)](docs/architecture.md) · [cost estimate](docs/cost.md) · [Well-Architected review](docs/well-architected.md) · [alarm runbook](docs/runbook-alarms.md) · [OIDC deploy setup](docs/deploy-oidc.md)
 
 A **capstone project** built using **AWS**, following a **microservices architecture** with an **event-driven**, **serverless (FaaS)** design. This platform enables scalable, modular, and resilient online auctions using the [Serverless Framework](https://www.serverless.com/) deployed on AWS cloud services.
 
@@ -114,7 +115,9 @@ serverless-auction-platform/
 - Create auctions (default end time: one hour), list them by status, and get one by ID
 - Place bids, with the rules checked by DynamoDB at write time so two bids at the same moment can't overwrite each other
 - Upload an auction picture to S3 (seller only)
-- A scheduled function closes ended auctions every minute and queues the result emails
+- List auctions a page at a time (`limit`, and the `X-Next-Token` response header as the cursor)
+- Each auction gets a one-time EventBridge Scheduler entry that closes it at its end time; a 15-minute sweep closes anything missed
+- Closing writes the result emails to an outbox table in the same transaction; a stream-triggered relay queues them
 
 ### 🔐 Auth Service
 
@@ -166,19 +169,29 @@ aws configure set region us-east-1
 
 ## ✅ End-to-end test on your laptop ($0)
 
-`npm run test:e2e` (`scripts/e2e-local.sh`) starts LocalStack (DynamoDB, SQS, S3, SES) and the auction API on serverless-offline. It then checks the whole flow, with no AWS account needed:
+`npm run test:e2e` (`scripts/e2e-local.sh`) starts LocalStack (DynamoDB, SQS, S3, SES, Scheduler) and the auction API on serverless-offline. It then checks the whole flow, with no AWS account needed:
 
 | Area | Checks |
 |---|---|
 | Validation | empty title, end date in the past and a bid of 0 → 400; unknown auction → 404 |
 | CRUD | create 201, get and list 200, bid 200 |
+| Paging | `limit=1` returns one item and an `X-Next-Token`; the next page differs; a bad token or `limit=0` → 400 |
+| Scheduler | creating an auction creates `auction-<id>`: an `at()` expression targeting `closeAuctionById` (self-delete is checked where the emulator returns it; LocalStack 3.5 doesn't) |
 | **Concurrency** | 10 identical bids race; **exactly one wins** (the conditional write on `highestBid.amount`), and the stored amount is correct |
 | Closing | an auction ending in 4 s is closed by `processAuctions`; a second run closes nothing twice |
+| Outbox | the close wrote exactly 2 outbox rows; `relayOutbox`, given them as a stream event, reports no failures |
 | Messaging | exactly 2 emails queued in SQS (seller and winner) |
+| Scheduled close | `closeAuctionById`: before the end → no-op; at the end → closed; again → no-op; 1 outbox row (no bids) |
 | Email | `sendMail` sends both through SES with no batch failures; LocalStack's SES endpoint shows both |
 | Failure path | a message without a recipient comes back as a batch item failure, so SQS retries it and then moves it to the DLQ |
 
-Last run: **16 passed, 0 failed**. Requires Docker, Node, Python 3 and the AWS CLI. LocalStack is pinned to the community image `3.5`, which needs no account.
+Last run (LocalStack 3.5 on a Mac): **31 passed, 0 failed**. Requires Docker, Node, Python 3 and the AWS CLI. LocalStack is pinned to the community image `3.5`, which needs no account.
+
+## 🧪 "First deploy" into LocalStack ($0)
+
+`bash scripts/deploy-localstack.sh` deploys the **same `serverless.yml` stacks** as AWS (stage `localstack`) into LocalStack's CloudFormation. It then smoke-tests through the deployed API Gateway, so the event wiring is exercised for real: sweep rule → transactional close → OutboxTable stream → `relayOutbox` → SQS → `sendMail` → SES. It also checks the stacks, the stage and bid throttling settings, the 4 alarms and the stream mapping. It takes about 3–4 minutes and needs Docker running. Last run (LocalStack 3.5 on a Mac): **13 passed, 0 failed**: both stacks, both throttling limits, 4 alarms, the stream mapping, create/get/bid through API Gateway, the per-auction schedule, the sweep closing the auction, and both emails arriving in SES.
+
+Not in LocalStack community, so not part of this stage: CloudFront (off via `useCdn`), the Auth0 authorizer, and schedules actually firing. Schedules are created; the sweep does the closing.
 
 ## ⚙️ Usage (Local Development & Testing)
 
@@ -337,7 +350,10 @@ Notes:
 - The deploy order matters. auth-service provides the authorizer, notification-service provides the mail queue, and auction-service reads both through CloudFormation outputs.
 - The bucket name includes the account ID (`auctions-<account>-<stage>`), so it is globally unique.
 - Lambda supplies the region and role credentials. The LocalStack endpoint and `test` credentials are only used when `LOCAL_AWS_ENDPOINT` is set (the `local` stage).
-- Emails that fail 3 times move to `MailQueue-<stage>-dlq`.
+- Emails that fail 3 times move to `MailQueue-<stage>-dlq`, which raises an alarm. Set `ALERT_EMAIL` before deploying to receive alarms (confirm the SNS subscription email).
+- Pictures are served through CloudFront; the bucket is private, and `pictureUrl` uses the distribution's domain.
+- Throttling (requests per second, burst) is set per stage in `auction-service/config/config.<stage>.yml` and applied after each deploy by `auction-service/plugins/stage-throttling.js`.
+- CI/CD alternative: the `deploy` workflow (OIDC, no stored keys). Setup in [docs/deploy-oidc.md](docs/deploy-oidc.md).
 - Runtime: `nodejs22.x`. Lambda deprecated `nodejs20.x` on 30 Apr 2026. Serverless Framework v3 predates Node 22 and prints a runtime warning, which is harmless.
 - Pictures must be base64-encoded JPEGs of 4 MB or less.
 

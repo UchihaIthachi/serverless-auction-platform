@@ -1,30 +1,178 @@
-# Architecture
+# Serverless Auction Platform: architecture atlas
 
-Three Serverless Framework services, communicating only through AWS managed services. All of it runs locally on LocalStack + serverless-offline (`npm run test:e2e`), and on AWS with `scripts/deploy-aws.sh`.
+Every diagram of the system in one place: request paths, auth, concurrency, per-auction scheduling, the transactional outbox, messaging, throttling, alarms, data, local environments, CI/CD, cost and growth. They are Mermaid, so they render on GitHub and are reviewed like code. Facts come from the code (`serverless.yml`, handlers, `resources/`) and from the two local test runs: `scripts/e2e-local.sh` (serverless-offline, 31 checks, run in CI) and `scripts/deploy-localstack.sh` (the real CloudFormation stacks deployed into LocalStack).
 
-## 1. Components
+| # | Diagram | Answers |
+|---|---|---|
+| 1 | [System context](#1-system-context) | Who uses it, what it depends on |
+| 2 | [Components](#2-components) | Services, functions, AWS resources |
+| 3 | [Stacks and deploy order](#3-stacks-and-deploy-order) | Three CloudFormation stacks and how they reference each other |
+| 4 | [Authorizer](#4-authorizer) | How a JWT becomes a seller or bidder identity |
+| 5 | [Create auction](#5-create-auction) | Validation, insert, per-auction schedule |
+| 6 | [Bid decision](#6-bid-decision) | Every check a bid goes through, with status codes |
+| 7 | [Bid race](#7-bid-race) | Why two simultaneous bids can't both win |
+| 8 | [Picture upload and delivery](#8-picture-upload-and-delivery) | JPEG check, private S3, CloudFront with OAC |
+| 9 | [Auction lifecycle](#9-auction-lifecycle) | States and what's allowed in each |
+| 10 | [Closing on time](#10-closing-on-time) | EventBridge Scheduler per auction, sweep as safety net |
+| 11 | [Transactional outbox](#11-transactional-outbox) | Why a close can't lose or half-send its emails |
+| 12 | [Outbox relay](#12-outbox-relay) | Stream → relayOutbox → SQS, retries, failures |
+| 13 | [Email lifecycle](#13-email-lifecycle) | Retries, partial failures, DLQ |
+| 14 | [Data model](#14-data-model) | Both tables, keys, GSI, TTL |
+| 15 | [Access patterns](#15-access-patterns) | Each query and the key it uses |
+| 16 | [Throttling](#16-throttling) | Stage and per-method limits, 429s |
+| 17 | [Alarms](#17-alarms) | What pages someone, and why |
+| 18 | [Security and IAM](#18-security-and-iam) | Who can do what |
+| 19 | [Local environments](#19-local-environments) | serverless-offline e2e vs full LocalStack deploy |
+| 20 | [CI and deploy pipelines](#20-ci-and-deploy-pipelines) | e2e on every push; OIDC deploy, no keys |
+| 21 | [Failure modes](#21-failure-modes) | What breaks and what users see |
+| 22 | [Cost breakdown](#22-cost-breakdown) | Where the money would go |
+| 23 | [Growth path](#23-growth-path) | What's done, what's next at 10× and 100× |
+
+---
+
+## 1. System context
 
 ```mermaid
 flowchart LR
-  client([Client]) -->|HTTPS + Bearer JWT| apigw[API Gateway<br/>REST API]
-  apigw -->|Lambda authorizer| auth[auth-service<br/>auth λ: verify RS256 JWT<br/>audience + issuer]
-  apigw --> create[createAuction λ]
-  apigw --> get[getAuction / getAuctions λ]
-  apigw --> bid[placeBid λ]
-  apigw --> pic[uploadAuctionPicture λ]
-  create & get & bid --> ddb[(DynamoDB AuctionsTable<br/>PK id · GSI statusAndEndDate)]
-  pic --> s3[(S3 auctions bucket<br/>JPEG ≤ 4 MB)]
-  pic --> ddb
-  cron[EventBridge rule<br/>rate 1 minute] --> proc[processAuctions λ]
-  proc -->|query GSI: OPEN and endingAt ≤ now| ddb
-  proc -->|conditional close| ddb
-  proc -->|2 messages per sold auction| q[[SQS MailQueue]]
-  q -->|batch 1, partial failures| mail[notification-service<br/>sendMail λ]
-  mail --> ses[SES]
-  q -. after 3 failed receives .-> dlq[[SQS MailQueue DLQ]]
+  seller([Seller]) -->|create, upload picture| sys[Serverless Auction Platform]
+  bidder([Bidder]) -->|browse, bid| sys
+  auth0[(Auth0<br/>identity provider)] -->|RS256 access tokens| seller & bidder
+  sys -->|sold, you won, no bids emails| mail([Email inbox])
+  sys -->|alarms| ops([Operator inbox])
+  sys -->|runs on| aws[AWS: API Gateway, Lambda, DynamoDB + Streams,<br/>S3, CloudFront, SQS, SES, EventBridge Scheduler,<br/>CloudWatch, SNS]
+  dev([Developer]) -->|git push| ci[GitHub Actions<br/>e2e on LocalStack]
+  dev -->|run workflow| cd[GitHub Actions<br/>deploy via OIDC]
 ```
 
-## 2. Placing a bid safely under concurrency
+## 2. Components
+
+```mermaid
+flowchart LR
+  client([Client]) -->|"HTTPS + Bearer JWT<br/>throttled per stage and method"| apigw[API Gateway<br/>REST API]
+  apigw -->|Lambda authorizer| auth[auth-service<br/>auth λ]
+  apigw --> create[createAuction λ]
+  apigw --> get["getAuction / getAuctions λ<br/>(paged)"]
+  apigw --> bid[placeBid λ]
+  apigw --> pic[uploadAuctionPicture λ]
+  create & get & bid & pic --> ddb[(AuctionsTable<br/>PK id · GSI statusAndEndDate)]
+  create -->|"CreateSchedule at(endingAt)"| sch[EventBridge Scheduler<br/>one-time, self-deleting]
+  sch --> cab[closeAuctionById λ]
+  sweep[EventBridge rule<br/>every 15 min] --> proc[processAuctions λ<br/>safety net]
+  cab & proc -->|"TransactWrite:<br/>CLOSED + outbox rows"| ddb
+  cab & proc --> obx[(OutboxTable<br/>stream NEW_IMAGE · TTL 7 d)]
+  obx -->|stream, INSERT only| relay[relayOutbox λ]
+  relay --> q[[SQS MailQueue]]
+  q -->|batch 1, partial failures| mail[notification-service<br/>sendMail λ]
+  mail --> ses[SES]
+  q -. after 3 failed receives .-> dlq[[MailQueue DLQ]]
+  pic --> s3[(S3 bucket<br/>private)]
+  cdn[CloudFront<br/>origin access control] -->|signed GetObject| s3
+  client -->|picture URLs| cdn
+```
+
+## 3. Stacks and deploy order
+
+```mermaid
+flowchart LR
+  subgraph s1["1 · auth-service stack"]
+    a1[auth λ<br/>auth-service-STAGE-auth]
+  end
+  subgraph s2["2 · notification-service stack"]
+    n1[[MailQueue-STAGE]]
+    n2[[MailQueue-STAGE-dlq]]
+    n3[sendMail λ]
+    n5[SNS auction-alerts-STAGE<br/>+ 2 alarms]
+    n4[/"Outputs: MailQueueArn, MailQueueUrl,<br/>AlertsTopicArn"/]
+  end
+  subgraph s3["3 · auction-service stack"]
+    x1[API + 8 functions]
+    x2[(AuctionsTable-STAGE)]
+    x6[(OutboxTable-STAGE)]
+    x3[(auctions-ACCOUNT-STAGE bucket)]
+    x7[CloudFront + OAC]
+    x8[scheduler role, sweep rule,<br/>2 alarms]
+  end
+  x1 -->|authorizer ARN| a1
+  n4 -->|"cf:notification-service-STAGE outputs"| s3
+  s1 --> s2 --> s3
+```
+
+`scripts/deploy-aws.sh` deploys in this order after checking identity, budget, Auth0 inputs and SES. `teardown-aws.sh` removes them in reverse, after emptying the bucket. `scripts/deploy-localstack.sh` deploys stacks 2 and 3 from the same `serverless.yml` into LocalStack (stage `localstack`: no CloudFront, no Auth0).
+
+## 4. Authorizer
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant G as API Gateway
+  participant A as auth λ
+  participant H as handler λ
+
+  C->>G: request + Authorization: Bearer JWT
+  alt no Authorization header
+    G-->>C: 401 (gateway response, CORS headers)
+  else token present
+    G->>A: authorizationToken, methodArn
+    A->>A: jwt.verify(RS256, Auth0 certificate,<br/>audience, issuer)
+    alt valid
+      A-->>G: Allow policy + context {sub, email}
+      Note over G: result cached (default 300 s)
+      G->>H: event.requestContext.authorizer.email
+      H-->>C: 2xx / 4xx
+    else invalid or expired
+      A-->>G: throw "Unauthorized"
+      G-->>C: 401
+    end
+  end
+```
+
+The email comes from the namespaced claim `https://serverless-auction/email`, which a post-login Auth0 Action adds. A plain `email` claim is also accepted.
+
+## 5. Create auction
+
+```mermaid
+flowchart TD
+  r([POST /auction]) --> mw[middy: JSON body parser, event normaliser,<br/>HTTP error handler, CORS]
+  mw --> v{JSON schema<br/>title 1–200 chars, non-blank<br/>endingAt optional date-time}
+  v -->|invalid| e400[400]
+  v --> d{endingAt}
+  d -->|missing| def[now + 1 hour]
+  d -->|in the past| e400b[400]
+  d -->|> 30 days away| e400c[400]
+  d -->|ok| put
+  def --> put[PutItem: status OPEN, highestBid 0, seller = email<br/>IF attribute_not_exists id]
+  put -.->|error| e500[500]
+  put --> sc["CreateSchedule auction-ID<br/>at(endingAt, rounded up to the second)<br/>ActionAfterCompletion DELETE"]
+  sc -->|ok or failed: best effort, logged| ok[201 + auction]
+```
+
+The schedule is best effort on purpose: the auction is already saved, and if the schedule can't be created the 15-minute sweep closes it instead. Losing a schedule delays a close; it never loses one.
+
+## 6. Bid decision
+
+```mermaid
+flowchart TD
+  r([PATCH /auction/id/bid]) --> v{amount > 0 and ≤ 10⁹?}
+  v -->|no| e400[400]
+  v --> g[GetItem id]
+  g -->|not found| e404[404]
+  g --> s{bidder = seller?}
+  s -->|yes| f1[403 can't bid on own auction]
+  s --> h{already highest bidder?}
+  h -->|yes| f2[403]
+  h --> o{status OPEN?}
+  o -->|no| f3[403 closed]
+  o --> a{amount > highest?}
+  a -->|no| f4[403 must be higher]
+  a --> u["UpdateItem SET highestBid<br/>IF status = OPEN AND endingAt > now<br/>AND highestBid.amount < amount AND seller ≠ bidder"]
+  u -->|ok| ok[200 + updated auction]
+  u -->|ConditionalCheckFailed| c409[409 changed while bidding]
+```
+
+The checks before the update give clear messages. The **condition on the update** is what makes it correct, because DynamoDB re-checks it atomically at write time.
+
+## 7. Bid race
 
 ```mermaid
 sequenceDiagram
@@ -39,42 +187,145 @@ sequenceDiagram
   and
     B->>L: PATCH /auction/42/bid {amount: 100}
   end
-  L->>D: UpdateItem highestBid = 100<br/>IF status = OPEN AND endingAt > now<br/>AND highestBid.amount < 100 AND seller <> bidder
-  D-->>L: OK (A's write lands first)
+  Note over L: both pre-checks pass:<br/>both read highestBid = 0
+  L->>D: UpdateItem … IF highestBid.amount < 100 (A)
+  D-->>L: OK
   L-->>A: 200
-  L->>D: same conditional UpdateItem for B
+  L->>D: UpdateItem … IF highestBid.amount < 100 (B)
   D-->>L: ConditionalCheckFailedException
-  L-->>B: 409 / 403 (outbid or auction closed)
+  L-->>B: 409
 ```
 
-The check and the write are **one atomic DynamoDB operation**. A read-then-write in Lambda code would let both bids pass the check before either writes. The local e2e test fires 10 identical bids at once: exactly one gets 200.
+Without the condition, both pre-checks pass and the second write silently overwrites the first. The e2e test fires 10 identical bids at once and asserts exactly one 200, with 100 stored.
 
-## 3. Closing auctions
+## 8. Picture upload and delivery
+
+```mermaid
+flowchart TD
+  r([PATCH /auction/id/picture<br/>body: base64 JPEG]) --> g[GetItem id]
+  g -->|not found| e404[404]
+  g --> own{caller = seller?}
+  own -->|no| e403[403]
+  own --> dec[strip data: prefix, base64 decode]
+  dec --> mag{starts with FF D8 FF?}
+  mag -->|no| e400[400 not a JPEG]
+  mag --> size{≤ 4 MB?}
+  size -->|no| e413[413]
+  size --> up[S3 Upload id.jpg<br/>Content-Type image/jpeg]
+  up --> set["UpdateItem SET pictureUrl =<br/>https://CLOUDFRONT-DOMAIN/id.jpg"]
+  set --> ok[200 + auction]
+```
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant E as EventBridge (every minute)
+  participant B as Browser
+  participant C as CloudFront edge
+  participant S as S3 bucket (all public access blocked)
+  B->>C: GET /id.jpg
+  alt cached at the edge
+    C-->>B: 200 (no S3 request)
+  else miss
+    C->>S: GetObject, SigV4-signed by origin access control
+    S->>S: bucket policy: Principal cloudfront.amazonaws.com<br/>AND AWS:SourceArn = this distribution
+    S-->>C: object
+    C-->>B: 200, cached (CachingOptimized)
+  end
+  B->>S: GET directly to the bucket
+  S-->>B: 403
+```
+
+Why 4 MB: Lambda's synchronous payload limit is 6 MB, and base64 adds about 33%. CloudFront is only in dev/prod (`useCdn`); LocalStack community has no CloudFront, so the `localstack` and `local` stages keep a public-read bucket.
+
+## 9. Auction lifecycle
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> OPEN: createAuction<br/>(endingAt now+1 h by default, max 30 days)<br/>+ one-time schedule
+  OPEN --> OPEN: placeBid (higher amount, not the seller)<br/>or uploadAuctionPicture (seller only)
+  OPEN --> CLOSED: schedule fires at endingAt (closeAuctionById)<br/>or the sweep finds it (processAuctions)<br/>conditional, only if still OPEN
+  CLOSED --> [*]: emails recorded in the outbox once
+  note right of CLOSED: bids rejected (403, or 409 if it<br/>closed during the bid)
+```
+
+## 10. Closing on time
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as EventBridge Scheduler
+  participant C as closeAuctionById λ
+  participant E as Sweep rule (every 15 min)
   participant P as processAuctions λ
   participant D as DynamoDB
+
+  Note over S: schedule auction-42 created with the auction
+  S->>C: at endingAt: {"auctionId": "42"} (retries 3, 1 h max age)
+  C->>D: GetItem 42
+  alt OPEN and endingAt passed
+    C->>D: TransactWrite: CLOSED IF status = OPEN + outbox rows
+    D-->>C: OK
+  else already CLOSED, or not ended yet
+    C-->>S: no-op
+  end
+  Note over S: schedule deletes itself (ActionAfterCompletion DELETE)
+  E->>P: later, as a safety net
+  P->>D: Query GSI: OPEN AND endingAt ≤ now (paginated)
+  D-->>P: only auctions the schedule missed
+  P->>D: same conditional TransactWrite
+  P-->>E: {found, closed, failed}
+```
+
+Before: a cron every minute, 43,200 runs a month, most finding nothing, and up to 60 s late. Now: one invocation per auction, at the second it ends. The sweep went from every minute to every 15 minutes because it only covers failures. Both paths share `closeAuction`, so whichever runs second finds the auction CLOSED and does nothing. The e2e test calls `closeAuctionById` early (no-op), on time (closes) and again (no-op), and checks the schedule's expression, target and self-delete setting.
+
+## 11. Transactional outbox
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant L as closeAuction (either path)
+  participant D as DynamoDB
+  participant O as OutboxTable stream
+  participant R as relayOutbox λ
   participant Q as SQS MailQueue
 
-  E->>P: scheduled event
-  P->>D: Query GSI statusAndEndDate: status = OPEN AND endingAt ≤ now (paginated)
-  D-->>P: ended auctions
-  loop each auction (Promise.allSettled: one failure doesn't stop the rest)
-    P->>D: UpdateItem status = CLOSED IF status = OPEN
-    alt first run to close it
-      D-->>P: OK
-      P->>Q: seller: "sold for $X" / "no bids"
-      P->>Q: winner: "you won" (if there was a bid)
-    else an overlapping run already closed it
-      D-->>P: ConditionalCheckFailed → skip, no duplicate emails
-    end
+  L->>D: TransactWriteItems
+  Note over D: 1. Update AuctionsTable 42: CLOSED IF status = OPEN<br/>2. Put OutboxTable: email to seller<br/>3. Put OutboxTable: email to winner
+  alt all three commit
+    D-->>L: OK
+    D-)O: 2 INSERT records
+    O-)R: batch (INSERT filter)
+    R->>Q: SendMessage × 2 (attribute outboxId)
+  else auction already CLOSED
+    D-->>L: TransactionCanceled [ConditionalCheckFailed, None, None]
+    Note over L: nothing written, no emails: return false
   end
 ```
 
-## 4. Email delivery, retries and the DLQ
+The problem it fixes: before, the close was one write and the two `SendMessage` calls came after it. A timeout or crash between them left an auction CLOSED with no emails, and nothing would ever retry, because the next run sees CLOSED and skips. With the outbox the state change and the "emails to send" record commit **atomically**, and the stream delivers them later with retries. Cost: a transaction costs 2 WRU per item, so a close is 6 WRU instead of 1 (about $0.004 a month at small scale).
+
+## 12. Outbox relay
+
+```mermaid
+flowchart TD
+  ins([OutboxTable INSERT]) --> f{event filter<br/>eventName = INSERT}
+  ttl([TTL delete after 7 days]) --> f
+  f -->|REMOVE| drop[not delivered to Lambda]
+  f -->|INSERT| r[relayOutbox λ<br/>batch 10]
+  r --> s{SendMessage OK?}
+  s -->|yes| next[next record]
+  s -->|no| bf["batchItemFailures = [this sequence number]<br/>stop: keep order"]
+  bf --> retry{retries left?<br/>max 10, bisect on error}
+  retry -->|yes| r
+  retry -->|no| fail[[auction-outbox-relay-failures<br/>SQS, 14 days]]
+  fail --> al1((alarm))
+  r -. iterator age > 5 min .-> al2((alarm))
+```
+
+Delivery is at-least-once: a retried batch can resend a record that already went out, so each message carries its `outboxId` for deduplication. A batch that gives up leaves the rows in OutboxTable (7-day TTL), so they can be replayed by `aggregateId`.
+
+## 13. Email lifecycle
 
 ```mermaid
 stateDiagram-v2
@@ -83,14 +334,95 @@ stateDiagram-v2
   Queued --> InFlight: Lambda polls (batch size 1)
   InFlight --> Sent: SES accepts → message deleted
   Sent --> [*]
-  InFlight --> Queued: reported in batchItemFailures,<br/>visible again after the timeout
-  Queued --> DLQ: received 3 times without success<br/>(redrive policy, maxReceiveCount 3)
-  DLQ --> [*]: kept 14 days for inspection or replay
+  InFlight --> Queued: reported in batchItemFailures,<br/>visible again after 60 s
+  Queued --> DLQ: received 3 times without success<br/>(maxReceiveCount 3)
+  DLQ --> [*]: kept 14 days, alarm fires
 ```
 
-`sendMail` returns `batchItemFailures` with only the failed message IDs, so one bad message doesn't make SQS redeliver the good ones.
+`sendMail` returns only the failed message IDs, so one bad message doesn't make SQS redeliver the good ones. The visibility timeout (60 s) is longer than the function timeout, as AWS recommends.
 
-## 5. Security
+## 14. Data model
+
+```mermaid
+erDiagram
+  AUCTION ||--o{ OUTBOX : "emails on close"
+  AUCTION {
+    string id PK "UUID"
+    string title "1-200 chars"
+    string status "OPEN | CLOSED, GSI partition key"
+    string endingAt "ISO-8601, GSI sort key"
+    string createdAt
+    string closedAt "set when closed"
+    string seller "email from the token"
+    number highestBid_amount "map: highestBid.amount"
+    string highestBid_bidder "map: highestBid.bidder"
+    string pictureUrl "CloudFront URL, optional"
+  }
+  OUTBOX {
+    string id PK "UUID"
+    string type "MAIL"
+    string aggregateId "auction id"
+    map payload "recipient, subject, body"
+    string createdAt
+    number expiresAt "epoch s, TTL (7 days)"
+  }
+```
+
+Two on-demand tables per stage. `AuctionsTable`'s GSI `statusAndEndDate` (`status` + `endingAt`, projection ALL) serves both the list and the sweep query. ISO-8601 strings sort correctly as text, so `endingAt <= now` works as a range condition. `OutboxTable` is append-only with a `NEW_IMAGE` stream.
+
+## 15. Access patterns
+
+| Pattern | Operation | Key | Used by |
+|---|---|---|---|
+| Get one auction | GetItem | `id` | getAuction, placeBid, uploadAuctionPicture, closeAuctionById |
+| List auctions by status, a page at a time | Query GSI | `status = :s`, `Limit` 1–100, `ExclusiveStartKey` from `nextToken` | getAuctions |
+| Find ended auctions | Query GSI | `status = OPEN AND endingAt <= now` | processAuctions (all pages) |
+| Create | PutItem | `attribute_not_exists(id)` | createAuction |
+| Bid | UpdateItem | conditional on status, endingAt, amount, seller | placeBid |
+| Close + record emails | TransactWriteItems | Update `IF status = OPEN` + 1–2 outbox Puts | closeAuction |
+| Relay emails | DynamoDB Streams (Lambda poller) | OutboxTable shard iterator | relayOutbox |
+
+There are no Scans. Paging keeps the body a plain array (backwards compatible) and returns the cursor in an `X-Next-Token` header: base64url of DynamoDB's `LastEvaluatedKey`, validated on the way back in (a malformed token, or one from another status, is a 400).
+
+## 16. Throttling
+
+```mermaid
+flowchart LR
+  c([client]) --> acct{"account limit<br/>10,000 rps (AWS default)"}
+  acct --> st{"stage *·*<br/>20 rps, burst 40 (dev)<br/>100 / 200 (prod)"}
+  st --> m{"PATCH /auction/{id}/bid<br/>10 rps, burst 20 (dev)<br/>50 / 100 (prod)"}
+  st -->|over the limit| t429[429 Too Many Requests<br/>+ CORS headers]
+  m -->|over the limit| t429
+  m --> auth[authorizer → placeBid λ]
+```
+
+API Gateway rejects excess requests **before** any Lambda, DynamoDB or authorizer work, so a flood costs only API Gateway requests. Bidding gets the tightest limit because it's the hottest write. Serverless Framework v3 can't put stage method settings in the template, so `auction-service/plugins/stage-throttling.js` applies them with `UpdateStage` after every deploy, from `custom.throttling`. The limits are per stage in `config/config.<stage>.yml`. The 429s carry CORS headers via the `DEFAULT_4XX` gateway response, so browsers can read them.
+
+## 17. Alarms
+
+```mermaid
+flowchart LR
+  subgraph metrics[CloudWatch metrics]
+    m1[MailQueue-dlq<br/>messages visible > 0]
+    m2[MailQueue<br/>oldest message > 15 min]
+    m3[outbox-relay-failures<br/>messages visible > 0]
+    m4[relayOutbox<br/>IteratorAge > 5 min for 5 min]
+  end
+  m1 & m2 & m3 & m4 --> sns[SNS auction-alerts-STAGE]
+  sns -->|ALERT_EMAIL set at deploy| inbox([operator email])
+  m1 & m3 -. back to OK .-> sns
+```
+
+| Alarm | Means | First thing to check |
+|---|---|---|
+| `mail-dlq-not-empty` | An email failed 3 times | `sendMail` logs; SES identity / sandbox recipient |
+| `mail-queue-stuck` | Emails aren't being consumed | `sendMail` errors or throttling; SES sending paused |
+| `outbox-relay-failures` | The relay gave up on a batch | Replay that auction's rows from OutboxTable |
+| `outbox-relay-lag` | The relay is behind or retrying | `relayOutbox` errors; SQS permissions |
+
+All four use `TreatMissingData: notBreaching`, so a quiet system stays green. Four alarms fit in CloudWatch's 10 free standard alarms.
+
+## 18. Security and IAM
 
 ```mermaid
 flowchart TB
@@ -98,7 +430,90 @@ flowchart TB
   v -->|RS256 signature, audience, issuer OK| allow[IAM Allow policy<br/>+ context: sub, email]
   v -->|anything else| deny[401]
   allow --> h[handlers use requestContext.authorizer.email<br/>as seller / bidder]
-  h --> iam[each service's IAM role:<br/>only its table, queue, bucket]
+  h --> iam
+  subgraph iam[Least-privilege roles]
+    r1["auction λ role: Put/Get/Update/Query on AuctionsTable + GSI,<br/>PutItem on OutboxTable, s3:PutObject on its bucket,<br/>sqs:SendMessage on MailQueue,<br/>scheduler:CreateSchedule on schedule/default/auction-*,<br/>iam:PassRole on the scheduler role (only to scheduler.amazonaws.com)"]
+    r3["scheduler role: lambda:InvokeFunction on closeAuctionById only,<br/>trust: scheduler.amazonaws.com from this account"]
+    r2[notification λ role: ses:SendEmail,<br/>sqs:ReceiveMessage on MailQueue]
+  end
+  cdn[S3: all public access blocked;<br/>only this CloudFront distribution may GetObject]
+  gh["GitHub deploy: OIDC token → STS → role,<br/>trusted only for this repo's dev/prod environments"]
+  sec[Secrets: Auth0 certificate file / GitHub secret;<br/>no AWS keys anywhere]
 ```
 
-There is no fallback identity on AWS. Only the `local` stage (serverless-offline, no authorizer) uses test emails.
+There is no fallback identity on AWS: only the `local` and `localstack` stages, with no authorizer, use test emails, and the serverless-localstack plugin can only deploy those two stages to localhost.
+
+## 19. Local environments
+
+```mermaid
+flowchart TB
+  subgraph a["npm run test:e2e: fast, in CI (31 checks)"]
+    t[e2e-local.sh] --> off[serverless-offline<br/>HTTP :3000 · Lambda :3002]
+    t --> inv["invoke processAuctions, closeAuctionById,<br/>relayOutbox (stream-shaped event), sendMail"]
+    off & inv -->|LOCAL_AWS_ENDPOINT :4566| ls1[LocalStack 3.5<br/>tables, queue, bucket, SES, Scheduler API]
+  end
+  subgraph b["bash scripts/deploy-localstack.sh: the real stacks"]
+    d[serverless deploy --stage localstack] --> cf[LocalStack CloudFormation]
+    cf --> res[API Gateway, 8 Lambdas, tables + stream,<br/>queues, rule, alarms, SNS]
+    smoke[smoke test via the deployed API] --> res
+    res -->|"sweep rule → close → stream → relay → SQS → sendMail → SES,<br/>all wired by LocalStack"| ses2[SES inbox endpoint]
+  end
+```
+
+Both are $0: LocalStack 3.5 community needs no account token. Mode (a) invokes the event-driven functions directly, since serverless-offline doesn't run streams or schedules. Mode (b) checks the wiring itself: CloudFormation, event source mappings, the throttling plugin and the alarms. In mode (b) functions run on `nodejs20.x`, because LocalStack 3.5 has no `nodejs22.x`, and the code is built for Node 20 so both work.
+
+## 20. CI and deploy pipelines
+
+```mermaid
+flowchart LR
+  p([push to master / any PR]) --> e2e["e2e workflow<br/>Node 22 · npm ci ×4 ·<br/>LocalStack + offline · 31 checks"]
+  e2e -->|pass| ok([green check · README badge])
+  e2e -->|fail| logs([LocalStack logs printed])
+  w([Run workflow: stage]) --> gate{AWS_DEPLOY_ROLE_ARN set?}
+  gate -->|no| skip([skipped: no account])
+  gate -->|yes| env{GitHub environment<br/>prod: required reviewer}
+  env --> oidc[OIDC token → STS<br/>temporary credentials]
+  oidc --> dep[deploy-aws.sh<br/>same checks as a laptop]
+```
+
+The deploy workflow has never run, because there's no AWS account. It is written, and the job is skipped until the role variable exists. Setup and the trust policy: [deploy-oidc.md](deploy-oidc.md).
+
+## 21. Failure modes
+
+| Failure | What users see | Why |
+|---|---|---|
+| Two bids at the same moment | One 200, one 409 | Conditional update (diagram 7) |
+| Bid as the auction ends | 409 or 403, never a bid on a closed auction | `endingAt > now` in the condition |
+| Schedule and sweep both close it | Closed and emailed once | `IF status = OPEN` inside the transaction |
+| Schedule couldn't be created | Closed by the sweep, up to 15 min late | Best-effort create, sweep safety net |
+| Crash right after the close | Emails still go out | Close and outbox rows commit together (diagram 11) |
+| SQS unavailable during relay | Emails delayed, not lost | Stream retries, then failure queue + alarm |
+| SES rejects an email | Retried, then DLQ for 14 days + alarm | Partial batch failures + redrive |
+| Malformed queue message | Goes to the DLQ, others unaffected | Reported as a batch item failure |
+| Bad, expired or missing token | 401 | Authorizer + gateway responses |
+| Request flood | 429 at the gateway, no Lambda cost | Stage + per-method throttling |
+| Picture not a JPEG / too big | 400 / 413 | Magic bytes + size check before S3 |
+| Direct S3 picture link | 403 | Bucket private; CloudFront OAC only |
+| Many auctions in one status | Paged results, `X-Next-Token` | Limit + cursor on getAuctions |
+
+## 22. Cost breakdown
+
+```mermaid
+pie showData title Monthly cost at small scale (USD, us-east-1, ≈ $0.85 total)
+  "API Gateway REST" : 0.43
+  "SES" : 0.20
+  "CloudWatch Logs" : 0.15
+  "DynamoDB" : 0.05
+  "S3" : 0.01
+```
+
+Lambda, SQS, EventBridge Scheduler, CloudFront, the four alarms and SNS email all stay inside their free allowances at this scale. The assumptions and the 10× / 100× numbers are in [cost.md](cost.md).
+
+## 23. Growth path
+
+```mermaid
+flowchart LR
+  done["Done<br/>EventBridge Scheduler per auction<br/>CloudFront + origin access control<br/>transactional outbox + stream relay<br/>paged getAuctions<br/>stage + per-method throttling<br/>DLQ / lag alarms → SNS<br/>OIDC deploy workflow"] --> x10
+  x10["10×<br/>HTTP API + JWT authorizer (≈70% cheaper)<br/>dedupe emails by outboxId<br/>structured logs + X-Ray traces"] --> x100
+  x100["100×<br/>provisioned capacity + auto scaling for steady load<br/>SES dedicated IP, bounce and complaint handling<br/>WAF with per-client rate rules<br/>multi-region read path"]
+```

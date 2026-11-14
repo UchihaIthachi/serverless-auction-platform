@@ -1,5 +1,16 @@
 awsEndpoint: ''
+runtime: nodejs22.x
 authorizer: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:auth-service-prod-auth
 mailQueueArn: ${cf:notification-service-prod.MailQueueArn}
 mailQueueUrl: ${cf:notification-service-prod.MailQueueUrl}
+alertsTopicArn: ${cf:notification-service-prod.AlertsTopicArn}
 auctionsBucketName: auctions-${aws:accountId}-prod
+# Close each auction exactly when it ends; the sweep is only a safety net.
+schedulerEnabled: 'true'
+schedulerRoleArn: arn:aws:iam::${aws:accountId}:role/auction-service-prod-scheduler
+schedulerTargetArn: arn:aws:lambda:${aws:region}:${aws:accountId}:function:auction-service-prod-closeAuctionById
+sweepRate: rate(15 minutes)
+# Private bucket behind CloudFront (origin access control).
+useCdn: 'true'
+picturesBaseUrl: !Join ['', ['https://', !GetAtt PicturesDistribution.DomainName]]
+throttle: { rateLimit: 100, burstLimit: 200, bidRateLimit: 50, bidBurstLimit: 100 }

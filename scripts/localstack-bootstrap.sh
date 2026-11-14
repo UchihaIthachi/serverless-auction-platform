@@ -51,6 +51,20 @@ if [ "$RECREATE_TABLE" == "true" ]; then
     --billing-mode PAY_PER_REQUEST > /dev/null
 fi
 
+# Outbox table (closeAuction writes CLOSED + its emails in one transaction).
+# Locally nothing reads its stream: the e2e test hands the rows to relayOutbox itself.
+echo "[Bootstrap] Creating DynamoDB table: OutboxTable-local..."
+if ! aws --endpoint-url="$ENDPOINT" dynamodb describe-table --table-name OutboxTable-local > /dev/null 2>&1; then
+  aws --endpoint-url="$ENDPOINT" dynamodb create-table \
+    --table-name OutboxTable-local \
+    --attribute-definitions AttributeName=id,AttributeType=S \
+    --key-schema AttributeName=id,KeyType=HASH \
+    --stream-specification StreamEnabled=true,StreamViewType=NEW_IMAGE \
+    --billing-mode PAY_PER_REQUEST > /dev/null
+else
+  echo "[Bootstrap] Table 'OutboxTable-local' already exists."
+fi
+
 # SQS Queues
 echo "[Bootstrap] Creating SQS queue: MailQueue-local..."
 if ! aws --endpoint-url="$ENDPOINT" sqs get-queue-url --queue-name MailQueue-local > /dev/null 2>&1; then
