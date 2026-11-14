@@ -8,7 +8,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   memorySize: 256
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
@@ -56,7 +56,7 @@ custom:
     bundle: true
     minify: false
     sourcemap: true
-    target: "node20"
+    target: "node22"
     platform: "node"
     external:
       - aws-sdk

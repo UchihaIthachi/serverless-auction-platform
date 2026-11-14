@@ -50,7 +50,10 @@ export async function handler(event) {
     // API Gateway only accepts strings, numbers and booleans in the
     // authorizer context, so pass just what the services use.
     const context = { sub: String(claims.sub) };
-    if (typeof claims.email === 'string') context.email = claims.email;
+    // Auth0 only adds a plain `email` claim in some flows, so the access token
+    // carries it as a namespaced custom claim (set by a post-login Action).
+    const email = claims[process.env.EMAIL_CLAIM || 'https://serverless-auction/email'] || claims.email;
+    if (typeof email === 'string') context.email = email;
 
     return { ...policy, context };
   } catch (error) {

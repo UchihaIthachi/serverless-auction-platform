@@ -268,42 +268,51 @@ _(Note: Port `3002` is used here assuming `serverless-offline` exposes Lambda RP
 
 ## 🏗️ Deployment (AWS)
 
-**Important**: Before deploying, make sure you are using real AWS credentials, not the LocalStack `test` ones:
+Three scripts handle a real deployment. You run them yourself with your own AWS profile; no access keys are stored in the repo or the scripts.
+
+### One-time setup
+
+1. **AWS account safety.** Turn on MFA for the root user and never use it day to day. Create an IAM Identity Center user, then `aws configure sso` with a profile, for example `auction`.
+2. **A cost guard before anything else.** Create a $5 monthly budget with email alerts. `deploy-aws.sh` refuses to run without one:
+   ```bash
+   ACC=$(aws sts get-caller-identity --query Account --output text)
+   aws budgets create-budget --account-id "$ACC" \
+     --budget '{"BudgetName":"monthly-5usd","BudgetLimit":{"Amount":"5","Unit":"USD"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
+     --notifications-with-subscribers '[
+       {"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"you@example.com"}]},
+       {"Notification":{"NotificationType":"FORECASTED","ComparisonOperator":"GREATER_THAN","Threshold":100,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"you@example.com"}]}]'
+   ```
+3. **Auth0** (free tenant):
+   - Create an **API**. Its identifier becomes `AUTH0_AUDIENCE`, and the issuer is `https://<tenant>.auth0.com/`.
+   - Download the tenant's signing certificate: Applications → your app → Settings → Advanced → Certificates. Save it as `auth-service/secret.pem` (git-ignored).
+   - Add a post-login **Action** so access tokens carry the user's email. Auth0 drops a plain `email` claim in some flows, so it is namespaced:
+     ```js
+     exports.onExecutePostLogin = async (event, api) => {
+       api.accessToken.setCustomClaim('https://serverless-auction/email', event.user.email);
+     };
+     ```
+4. **SES** (sandbox): verify the sender, and every recipient while in the sandbox:
+   `aws sesv2 create-email-identity --email-identity you@example.com`, then click the link in the email.
+
+### Deploy, test, remove
 
 ```bash
-# Verify identity (should NOT be 'test')
-aws sts get-caller-identity
+export AWS_PROFILE=auction AUTH0_AUDIENCE=https://auction-api AUTH0_ISSUER=https://<tenant>.auth0.com/ SENDER_EMAIL=you@example.com
+bash scripts/deploy-aws.sh                 # checks identity, budget, Auth0 inputs, SES; deploys auth -> notification -> auction
+TOKEN=<access token> bash scripts/smoke-aws.sh   # 401 without/with a bad token, create 201, get/list 200, seller's own bid 403
+bash scripts/teardown-aws.sh               # empties the bucket and removes all three stacks
 ```
 
-The services depend on each other, so deploy them in this order:
-
-1. **notification-service** creates the mail queue; auction-service reads its URL and ARN from this stack.
-2. **auth-service** creates the authorizer function that auction-service's API uses.
-3. **auction-service**.
-
-```bash
-# 1. Notification service. SENDER_EMAIL must be a verified SES identity
-#    (in the SES sandbox, recipients must be verified too).
-cd notification-service
-SENDER_EMAIL=you@example.com sls deploy --stage dev
-
-# 2. Auth service. Put your Auth0 tenant's signing certificate in
-#    auth-service/secret.pem (it is git-ignored), then:
-cd ../auth-service
-AUTH0_AUDIENCE=https://your-api-identifier AUTH0_ISSUER=https://your-tenant.auth0.com/ \
-  sls deploy --stage dev
-
-# 3. Auction service
-cd ../auction-service
-sls deploy --stage dev
-```
+To get an access token for the smoke test, sign in through your Auth0 application (or use the API's Test tab for a machine token). A second user's token (`TOKEN2`) adds a real bid and a rejected lower bid.
 
 Notes:
 
-- Lambda provides the region and the function's role credentials itself. The services only use the LocalStack endpoint and the dummy `test` credentials when `LOCAL_AWS_ENDPOINT` is set (the `local` stage).
-- Auth0 access tokens must include an `email` claim, which the auction service uses as the seller / bidder identity.
-- Emails that fail 3 times move to the `MailQueue-<stage>-dlq` dead-letter queue.
-- Auction pictures must be base64-encoded JPEGs of 4 MB or less.
+- The deploy order matters. auth-service provides the authorizer, notification-service provides the mail queue, and auction-service reads both through CloudFormation outputs.
+- The bucket name includes the account ID (`auctions-<account>-<stage>`), so it is globally unique.
+- Lambda supplies the region and role credentials. The LocalStack endpoint and `test` credentials are only used when `LOCAL_AWS_ENDPOINT` is set (the `local` stage).
+- Emails that fail 3 times move to `MailQueue-<stage>-dlq`.
+- Runtime: `nodejs22.x`. Lambda deprecated `nodejs20.x` on 30 Apr 2026. Serverless Framework v3 predates Node 22 and prints a runtime warning, which is harmless.
+- Pictures must be base64-encoded JPEGs of 4 MB or less.
 
 ---
 

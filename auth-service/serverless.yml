@@ -7,7 +7,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   memorySize: 128
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
@@ -20,6 +20,7 @@ provider:
     #   AUTH0_AUDIENCE=https://auction-api  AUTH0_ISSUER=https://<tenant>.auth0.com/
     AUTH0_AUDIENCE: ${env:AUTH0_AUDIENCE, ''}
     AUTH0_ISSUER: ${env:AUTH0_ISSUER, ''}
+    EMAIL_CLAIM: ${env:EMAIL_CLAIM, 'https://serverless-auction/email'}
 
 functions:
   auth:
@@ -77,7 +78,7 @@ custom:
     bundle: true
     minify: false
     sourcemap: true
-    target: "node20"
+    target: "node22"
     platform: "node"
     external:
       - aws-sdk
