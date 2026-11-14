@@ -1,0 +1,37 @@
+# Runs the local end-to-end test (LocalStack + serverless-offline) on every push and PR.
+# No AWS account or secrets: LocalStack's pinned community image needs no token.
+name: e2e
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            auth-service/package-lock.json
+            auction-service/package-lock.json
+            notification-service/package-lock.json
+      - name: Install dependencies
+        run: |
+          for d in . auth-service auction-service notification-service; do (cd "$d" && npm ci --no-audit --no-fund); done
+      - name: End-to-end test
+        run: DOWN=1 bash scripts/e2e-local.sh
+      - name: LocalStack logs on failure
+        if: failure()
+        run: docker logs localstack 2>&1 | tail -100

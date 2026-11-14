@@ -1,0 +1,24 @@
+# The role EventBridge Scheduler assumes to invoke closeAuctionById. Its name is
+# fixed so createAuction can pass its ARN without a CloudFormation reference.
+AuctionSchedulerRole:
+  Type: AWS::IAM::Role
+  Condition: UseScheduler
+  Properties:
+    RoleName: ${self:service}-${self:provider.stage}-scheduler
+    AssumeRolePolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Principal: { Service: scheduler.amazonaws.com }
+          Action: sts:AssumeRole
+          Condition:
+            StringEquals:
+              aws:SourceAccount: !Ref AWS::AccountId
+    Policies:
+      - PolicyName: invoke-close-auction
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: ${self:custom.config.schedulerTargetArn}

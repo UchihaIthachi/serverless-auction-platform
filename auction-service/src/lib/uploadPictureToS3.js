@@ -1,5 +1,8 @@
 import { s3, Upload } from '../../../shared/aws';
 
+// Returns the URL clients should load the picture from. With CloudFront in
+// front of the bucket (dev/prod) that is the CDN domain, because the bucket
+// itself is private; without it (local runs) it is the S3 object URL.
 export async function uploadPictureToS3(key, body) {
   const upload = new Upload({
     client: s3,
@@ -13,5 +16,6 @@ export async function uploadPictureToS3(key, body) {
   });
 
   const result = await upload.done();
-  return result.Location;
+  const base = process.env.PICTURES_BASE_URL;
+  return base ? `${base.replace(/\/$/, '')}/${encodeURIComponent(key)}` : result.Location;
 }

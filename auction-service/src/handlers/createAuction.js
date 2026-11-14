@@ -5,6 +5,7 @@ import { ddb } from "../../../shared/aws";
 import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import commonMiddleware from "../lib/commonMiddleware";
 import { getUserEmail } from "../lib/getUserEmail";
+import { scheduleClose } from "../lib/scheduleClose";
 import createAuctionSchema from "../lib/schemas/createAuctionSchema";
 
 const MAX_DAYS = 30;
@@ -48,6 +49,10 @@ async function createAuction(event) {
     console.error(error);
     throw new createError.InternalServerError("Could not create the auction");
   }
+
+  // Close exactly when it ends (EventBridge Scheduler). Best effort: the
+  // auction is saved either way, and the sweep closes it if this fails.
+  await scheduleClose(auction);
 
   return {
     statusCode: 201,

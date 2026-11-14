@@ -5,15 +5,13 @@ AuctionsBucket:
     OwnershipControls:
       Rules:
         - ObjectOwnership: BucketOwnerEnforced
-    # New buckets block public access by default, which would reject the
-    # public-read policy below. Only public *policies* are allowed here; ACLs
-    # stay blocked. (For production, CloudFront with origin access control
-    # would let this stay fully private.)
+    # With CloudFront (dev/prod) the bucket is completely private. Without it
+    # (LocalStack) a public-read policy is allowed so picture URLs open.
     PublicAccessBlockConfiguration:
       BlockPublicAcls: true
       IgnorePublicAcls: true
-      BlockPublicPolicy: false
-      RestrictPublicBuckets: false
+      BlockPublicPolicy: !If [UseCdn, true, false]
+      RestrictPublicBuckets: !If [UseCdn, true, false]
     LifecycleConfiguration:
       Rules:
         - Id: AbortIncompleteUploads
@@ -21,8 +19,28 @@ AuctionsBucket:
           AbortIncompleteMultipartUpload:
             DaysAfterInitiation: 1
 
-AuctionsBucketPolicy:
+# dev/prod: only CloudFront, and only this distribution, may read objects.
+AuctionsBucketCdnPolicy:
   Type: AWS::S3::BucketPolicy
+  Condition: UseCdn
+  Properties:
+    Bucket: !Ref AuctionsBucket
+    PolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Sid: CloudFrontReadViaOAC
+          Effect: Allow
+          Principal: { Service: cloudfront.amazonaws.com }
+          Action: s3:GetObject
+          Resource: arn:aws:s3:::${self:custom.AuctionsBucket.name}/*
+          Condition:
+            StringEquals:
+              AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${PicturesDistribution}
+
+# Stages without CloudFront: public read, as before.
+AuctionsBucketPublicReadPolicy:
+  Type: AWS::S3::BucketPolicy
+  Condition: NoCdn
   Properties:
     Bucket: !Ref AuctionsBucket
     PolicyDocument:

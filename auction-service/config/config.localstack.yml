@@ -1,0 +1,16 @@
+# The real CloudFormation stacks deployed into LocalStack 3.5 (scripts/deploy-localstack.sh).
+# Functions run inside LocalStack's Lambda containers and reach it by this name.
+awsEndpoint: http://localhost.localstack.cloud:4566
+runtime: nodejs20.x            # LocalStack 3.5 has no nodejs22.x runtime
+authorizer: ''                 # no Auth0 locally; handlers fall back to test emails
+mailQueueArn: ${cf:notification-service-localstack.MailQueueArn}
+mailQueueUrl: ${cf:notification-service-localstack.MailQueueUrl}
+alertsTopicArn: ${cf:notification-service-localstack.AlertsTopicArn}
+auctionsBucketName: auctions-000000000000-localstack
+schedulerEnabled: 'true'       # schedules are created; LocalStack community doesn't fire them, the sweep closes
+schedulerRoleArn: arn:aws:iam::000000000000:role/auction-service-localstack-scheduler
+schedulerTargetArn: arn:aws:lambda:us-east-1:000000000000:function:auction-service-localstack-closeAuctionById
+sweepRate: rate(1 minute)
+useCdn: 'false'                # CloudFront is not in LocalStack community
+picturesBaseUrl: ''
+throttle: { rateLimit: 20, burstLimit: 40, bidRateLimit: 10, bidBurstLimit: 20 }

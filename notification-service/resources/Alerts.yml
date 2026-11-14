@@ -1,0 +1,59 @@
+# One topic for every alarm in the platform (auction-service imports its ARN).
+# Set ALERT_EMAIL when deploying to get the alarms by email; confirm the
+# subscription from the email AWS sends.
+AlertsTopic:
+  Type: AWS::SNS::Topic
+  Properties:
+    TopicName: auction-alerts-${self:provider.stage}
+
+AlertsEmailSubscription:
+  Type: AWS::SNS::Subscription
+  Condition: HasAlertEmail
+  Properties:
+    TopicArn: !Ref AlertsTopic
+    Protocol: email
+    Endpoint: ${env:ALERT_EMAIL, ''}
+
+# Any email in the DLQ means a customer didn't get a mail after 3 tries.
+MailDlqAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: auction-${self:provider.stage}-mail-dlq-not-empty
+    AlarmDescription: Emails failed 3 times and are in the dead-letter queue. See docs/runbook-alarms.md.
+    Namespace: AWS/SQS
+    MetricName: ApproximateNumberOfMessagesVisible
+    Dimensions:
+      - Name: QueueName
+        Value: !GetAtt MailDeadLetterQueue.QueueName
+    Statistic: Maximum
+    Period: 300            # SQS publishes these metrics every 5 minutes
+    EvaluationPeriods: 1
+    Threshold: 0
+    ComparisonOperator: GreaterThanThreshold
+    TreatMissingData: notBreaching
+    AlarmActions: [!Ref AlertsTopic]
+    OKActions: [!Ref AlertsTopic]
+
+# The mail queue isn't draining: its oldest message is over 15 minutes old
+# (sendMail broken, throttled, or SES paused).
+MailQueueAgeAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: auction-${self:provider.stage}-mail-queue-stuck
+    AlarmDescription: The oldest message on the mail queue is more than 15 minutes old.
+    Namespace: AWS/SQS
+    MetricName: ApproximateAgeOfOldestMessage
+    Dimensions:
+      - Name: QueueName
+        Value: !GetAtt MailQueue.QueueName
+    Statistic: Maximum
+    Period: 300
+    EvaluationPeriods: 1
+    Threshold: 900
+    ComparisonOperator: GreaterThanThreshold
+    TreatMissingData: notBreaching
+    AlarmActions: [!Ref AlertsTopic]
+
+Outputs:
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic

@@ -1,0 +1,66 @@
+# Transactional outbox: closeAuction writes the auction's CLOSED status and the
+# emails it causes in one transaction; the stream hands new rows to relayOutbox.
+OutboxTable:
+  Type: AWS::DynamoDB::Table
+  Properties:
+    TableName: ${self:custom.OutboxTable.name}
+    BillingMode: PAY_PER_REQUEST
+    AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+    KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+    StreamSpecification:
+      StreamViewType: NEW_IMAGE
+    # Relayed rows expire after 7 days; until then they can be replayed by id.
+    TimeToLiveSpecification:
+      AttributeName: expiresAt
+      Enabled: true
+
+# Batches the relay still can't send after 10 retries land here (stream
+# position and record metadata; the row itself stays in OutboxTable).
+OutboxRelayFailures:
+  Type: AWS::SQS::Queue
+  Properties:
+    QueueName: auction-outbox-relay-failures-${self:provider.stage}
+    MessageRetentionPeriod: 1209600
+
+OutboxRelayFailuresAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: auction-${self:provider.stage}-outbox-relay-failures
+    AlarmDescription: The outbox relay gave up on a batch. Emails were recorded but not queued; replay them from OutboxTable (docs/runbook-alarms.md).
+    Namespace: AWS/SQS
+    MetricName: ApproximateNumberOfMessagesVisible
+    Dimensions:
+      - Name: QueueName
+        Value: !GetAtt OutboxRelayFailures.QueueName
+    Statistic: Maximum
+    Period: 300
+    EvaluationPeriods: 1
+    Threshold: 0
+    ComparisonOperator: GreaterThanThreshold
+    TreatMissingData: notBreaching
+    AlarmActions: ['${self:custom.config.alertsTopicArn}']
+    OKActions: ['${self:custom.config.alertsTopicArn}']
+
+# The relay is falling behind (or stuck retrying): the oldest unprocessed
+# stream record is more than 5 minutes old.
+OutboxRelayIteratorAgeAlarm:
+  Type: AWS::CloudWatch::Alarm
+  Properties:
+    AlarmName: auction-${self:provider.stage}-outbox-relay-lag
+    AlarmDescription: relayOutbox is more than 5 minutes behind the OutboxTable stream.
+    Namespace: AWS/Lambda
+    MetricName: IteratorAge
+    Dimensions:
+      - Name: FunctionName
+        Value: ${self:service}-${self:provider.stage}-relayOutbox
+    Statistic: Maximum
+    Period: 60
+    EvaluationPeriods: 5
+    Threshold: 300000
+    ComparisonOperator: GreaterThanThreshold
+    TreatMissingData: notBreaching
+    AlarmActions: ['${self:custom.config.alertsTopicArn}']

@@ -1,0 +1,16 @@
+# createAuction creates one schedule per auction, named auction-<id>.
+CreateScheduleIAM:
+  Effect: Allow
+  Action:
+    - scheduler:CreateSchedule
+  Resource: arn:aws:scheduler:#{AWS::Region}:#{AWS::AccountId}:schedule/default/auction-*
+
+# Creating a schedule hands it the scheduler role, which needs PassRole.
+PassSchedulerRoleIAM:
+  Effect: Allow
+  Action:
+    - iam:PassRole
+  Resource: ${self:custom.config.schedulerRoleArn}
+  Condition:
+    StringEquals:
+      iam:PassedToService: scheduler.amazonaws.com

@@ -1,0 +1,66 @@
+# Deploy to AWS with GitHub's OIDC token: no AWS keys stored anywhere.
+# GitHub signs a short-lived token for this run; AWS STS trades it for temporary
+# credentials of one IAM role, whose trust policy only accepts this repository
+# and this GitHub environment. Setup: docs/deploy-oidc.md.
+#
+# Manual only, and skipped entirely until the repository variable
+# AWS_DEPLOY_ROLE_ARN exists, so the repository works without an AWS account.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage to deploy
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write   # lets the job request the OIDC token
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.stage }}
+  cancel-in-progress: false   # never cancel a CloudFormation update halfway
+
+jobs:
+  deploy:
+    if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # GitHub environment "dev" / "prod": put required reviewers on prod.
+    # The environment name is part of the OIDC subject the role trusts.
+    environment: ${{ inputs.stage }}
+    env:
+      STAGE: ${{ inputs.stage }}
+      REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
+      AUTH0_ISSUER: ${{ vars.AUTH0_ISSUER }}
+      SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
+      ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            auth-service/package-lock.json
+            auction-service/package-lock.json
+            notification-service/package-lock.json
+      - name: Install dependencies
+        run: for d in . auth-service auction-service notification-service; do (cd "$d" && npm ci --no-audit --no-fund); done
+      - name: AWS credentials from OIDC (no keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gh-${{ github.run_id }}-${{ inputs.stage }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - name: Auth0 signing certificate
+        env:
+          AUTH0_PUBLIC_KEY: ${{ secrets.AUTH0_PUBLIC_KEY }}   # public, but kept out of the repo like locally
+        run: printf '%s\n' "$AUTH0_PUBLIC_KEY" > auth-service/secret.pem
+      - name: Deploy (same script and safety checks as from a laptop)
+        run: bash scripts/deploy-aws.sh
