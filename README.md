@@ -1,5 +1,16 @@
 # 🛠️ Serverless Auction Platform
 
+[![e2e](https://github.com/UchihaIthachi/serverless-auction-platform/actions/workflows/e2e.yml/badge.svg)](https://github.com/UchihaIthachi/serverless-auction-platform/actions/workflows/e2e.yml)
+
+**Highlights**
+- **Concurrency-safe bidding.** The bid check and the write are one conditional DynamoDB update. A 10-way race test proves exactly one bid wins.
+- **Idempotent closing.** A conditional close means overlapping scheduled runs never send duplicate emails.
+- **Reliable email.** SQS with partial batch failures, 3 retries, then a dead-letter queue.
+- **End-to-end tested at $0.** LocalStack + serverless-offline, 16 checks, run in CI on every push and PR.
+- **Costed before deploying:** about $0.90 a month at small scale ([docs/cost.md](docs/cost.md)).
+
+Docs: [architecture and flows](docs/architecture.md) · [cost estimate](docs/cost.md) · deploying to AWS: see "Deployment (AWS)" below
+
 A **capstone project** built using **AWS**, following a **microservices architecture** with an **event-driven**, **serverless (FaaS)** design. This platform enables scalable, modular, and resilient online auctions using the [Serverless Framework](https://www.serverless.com/) deployed on AWS cloud services.
 
 ---
